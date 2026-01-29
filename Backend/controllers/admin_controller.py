@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import os
 
 from flask import Blueprint, jsonify, request
 from sqlalchemy import func
@@ -8,6 +9,10 @@ from extensions import db
 from models import Essay, PointsAccount, PointsLedger, User
 from services.points_service import award_points
 from services.auth_service import role_required
+from services.llm_usage_service import get_month_usage
+from services.llm_service import get_active_model_name
+from services.llm_config_service import get_active_config, set_active_config, to_safe_dict
+from models import LLMConfig, LLMUsageLog
 
 
 admin_bp = Blueprint("admin", __name__)
@@ -105,22 +110,17 @@ def update_user(username):
 @admin_bp.route("/api/v1/admin/users/<username>/reset-password", methods=["POST"])
 @role_required("admin")
 def reset_password(username):
-    data = request.get_json() or {}
-    provided_password = data.get("password")
-    if not provided_password:
-        return jsonify({"error": "新密码不能为空"}), 400
-
     try:
         user = User.query.filter_by(username=username).first()
         if not user:
             return jsonify({"error": "用户不存在"}), 404
 
-        user.password_hash = generate_password_hash(provided_password, method="pbkdf2:sha256")
+        user.password_hash = generate_password_hash("123456", method="pbkdf2:sha256")
         user.must_change_password = True
         user.must_change_password_expires_at = datetime.utcnow() + timedelta(days=7)
         db.session.commit()
         return jsonify({
-            "message": "密码已重置",
+            "message": "密码已重置为 123456，下次登录需修改。",
             "expiresAt": user.must_change_password_expires_at.isoformat(),
         }), 200
     except Exception as exc:
@@ -261,3 +261,140 @@ def admin_dashboard():
     except Exception as exc:
         print(f"Dashboard query failed: {exc}")
         return jsonify({"error": "仪表盘数据查询失败"}), 500
+
+
+@admin_bp.route("/api/v1/admin/llm/status", methods=["GET"])
+@role_required("admin")
+def llm_status():
+    try:
+        now = datetime.utcnow()
+        model_name = get_active_model_name()
+        used_tokens, last_used_at = get_month_usage(model_name, now.year, now.month)
+        quota = os.getenv("LLM_TOKEN_QUOTA")
+        quota_value = int(quota) if quota and quota.isdigit() else None
+        remaining = None
+        if quota_value is not None:
+            remaining = max(quota_value - used_tokens, 0)
+        return jsonify({
+            "model": model_name,
+            "month": f"{now.year}-{now.month:02d}",
+            "usedTokens": used_tokens,
+            "quotaTokens": quota_value,
+            "remainingTokens": remaining,
+            "lastUsedAt": last_used_at.isoformat() if last_used_at else None,
+        }), 200
+    except Exception as exc:
+        print(f"LLM status query failed: {exc}")
+        return jsonify({"error": "LLM 状态查询失败"}), 500
+
+
+@admin_bp.route("/api/v1/admin/llm/configs", methods=["GET"])
+@role_required("admin")
+def list_llm_configs():
+    try:
+        configs = LLMConfig.query.order_by(LLMConfig.created_at.desc()).all()
+        return jsonify([to_safe_dict(item) for item in configs]), 200
+    except Exception as exc:
+        print(f"LLM config list failed: {exc}")
+        return jsonify({"error": "LLM 配置查询失败"}), 500
+
+
+@admin_bp.route("/api/v1/admin/llm/configs", methods=["POST"])
+@role_required("admin")
+def create_llm_config():
+    data = request.get_json() or {}
+    model_name = data.get("modelName")
+    provider = data.get("provider")
+    api_key = data.get("apiKey")
+    base_url = data.get("baseUrl")
+    is_active = bool(data.get("isActive"))
+
+    if not model_name or not api_key:
+        return jsonify({"error": "modelName 和 apiKey 为必填项"}), 400
+
+    try:
+        config = LLMConfig(
+            model_name=model_name,
+            provider=provider,
+            api_key=api_key,
+            base_url=base_url,
+            is_active=False,
+        )
+        db.session.add(config)
+        db.session.flush()
+        if is_active:
+            set_active_config(config)
+        db.session.commit()
+        return jsonify(to_safe_dict(config)), 201
+    except Exception as exc:
+        db.session.rollback()
+        print(f"LLM config create failed: {exc}")
+        return jsonify({"error": "LLM 配置创建失败"}), 500
+
+
+@admin_bp.route("/api/v1/admin/llm/configs/<int:config_id>", methods=["PATCH"])
+@role_required("admin")
+def update_llm_config(config_id):
+    data = request.get_json() or {}
+    try:
+        config = LLMConfig.query.get(config_id)
+        if not config:
+            return jsonify({"error": "LLM 配置不存在"}), 404
+
+        if "modelName" in data:
+            config.model_name = data.get("modelName") or config.model_name
+        if "provider" in data:
+            config.provider = data.get("provider")
+        if "apiKey" in data and data.get("apiKey"):
+            config.api_key = data.get("apiKey")
+        if "baseUrl" in data:
+            config.base_url = data.get("baseUrl")
+        if data.get("isActive"):
+            set_active_config(config)
+        db.session.commit()
+        return jsonify(to_safe_dict(config)), 200
+    except Exception as exc:
+        db.session.rollback()
+        print(f"LLM config update failed: {exc}")
+        return jsonify({"error": "LLM 配置更新失败"}), 500
+
+
+@admin_bp.route("/api/v1/admin/llm/configs/<int:config_id>/activate", methods=["POST"])
+@role_required("admin")
+def activate_llm_config(config_id):
+    try:
+        config = LLMConfig.query.get(config_id)
+        if not config:
+            return jsonify({"error": "LLM 配置不存在"}), 404
+        set_active_config(config)
+        db.session.commit()
+        return jsonify(to_safe_dict(config)), 200
+    except Exception as exc:
+        db.session.rollback()
+        print(f"LLM config activate failed: {exc}")
+        return jsonify({"error": "LLM 配置激活失败"}), 500
+
+
+@admin_bp.route("/api/v1/admin/llm/configs/<int:config_id>", methods=["DELETE"])
+@role_required("admin")
+def delete_llm_config(config_id):
+    try:
+        config = LLMConfig.query.get(config_id)
+        if not config:
+            return jsonify({"error": "LLM 配置不存在"}), 404
+        if config.is_active:
+            return jsonify({"error": "不能删除当前使用中的模型"}), 400
+        used_count = (
+            db.session.query(func.count(LLMUsageLog.id))
+            .filter(LLMUsageLog.model == config.model_name)
+            .scalar()
+        ) or 0
+        if used_count > 0:
+            return jsonify({"error": "该模型已有使用记录，禁止删除"}), 400
+        db.session.delete(config)
+        db.session.commit()
+        return jsonify({"message": "删除成功"}), 200
+    except Exception as exc:
+        db.session.rollback()
+        print(f"LLM config delete failed: {exc}")
+        return jsonify({"error": "LLM 配置删除失败"}), 500

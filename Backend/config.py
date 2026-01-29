@@ -3,6 +3,7 @@ import os
 
 class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", os.getenv("SECRET_KEY", "dev-secret-change-me"))
 
     @staticmethod
     def _build_db_uri():

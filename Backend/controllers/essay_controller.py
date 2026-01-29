@@ -8,7 +8,8 @@ from flask_jwt_extended import get_jwt_identity
 from extensions import db
 from models import Essay, PointsAccount
 from services.auth_service import active_required
-from services.llm_service import ai_score_and_refine
+from services.llm_service import ai_score_and_refine, get_active_model_name
+from services.llm_usage_service import record_llm_usage
 from services.points_service import award_points
 
 
@@ -43,7 +44,7 @@ def score_essay():
         return jsonify({"error": "积分不足"}), 402
 
     try:
-        score, feedback, revised_content = ai_score_and_refine(topic, content)
+        score, feedback, revised_content, usage = ai_score_and_refine(topic, content)
     except Exception as exc:
         print(f"AI scoring failed: {exc}")
         return jsonify({"error": "评分服务调用失败"}), 500
@@ -73,6 +74,7 @@ def score_essay():
             idempotency_key=f"{username}|essay.score|{essay_id}",
             metadata={"title": title},
         )
+        record_llm_usage(get_active_model_name(), usage or {})
         db.session.commit()
     except ValueError as exc:
         db.session.rollback()

@@ -2,12 +2,17 @@ import React, { useEffect, useState } from 'react';
 import { Loader2, RefreshCcw, Search } from 'lucide-react';
 import { apiRequest } from '../api/client.js';
 import AdminHeader from './AdminHeader.jsx';
+import Pagination from '../components/Pagination.jsx';
 
 const AdminPointsPage = ({ onLogout }) => {
     const [query, setQuery] = useState('');
     const [accounts, setAccounts] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [page, setPage] = useState(1);
+    const pageSize = 9;
+    const totalPages = Math.max(1, Math.ceil(accounts.length / pageSize));
+    const pagedAccounts = accounts.slice((page - 1) * pageSize, page * pageSize);
 
     const loadAccounts = async () => {
         setIsLoading(true);
@@ -30,6 +35,9 @@ const AdminPointsPage = ({ onLogout }) => {
     useEffect(() => {
         loadAccounts();
     }, []);
+    useEffect(() => {
+        setPage(1);
+    }, [accounts, query]);
 
     const handleAdjustPoints = async (username) => {
         const deltaText = window.prompt('输入积分变动（可正可负）');
@@ -63,13 +71,18 @@ const AdminPointsPage = ({ onLogout }) => {
     };
 
     return (
-        <div className="min-h-screen bg-gray-100">
+        <div className="min-h-screen admin-shell pb-10">
             <AdminHeader onLogout={onLogout} />
-            <main className="max-w-5xl mx-auto p-4 md:p-8 space-y-6">
-                <section className="bg-white rounded-2xl shadow-xl p-4 md:p-6">
-                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                        <div className="flex flex-1 gap-3">
-                            <div className="flex items-center w-full bg-gray-50 border border-gray-200 rounded-lg px-3">
+            <main className="max-w-5xl mx-auto p-4 md:p-10 space-y-6">
+                <section className="admin-panel rounded-3xl p-5 md:p-7 fade-in-up">
+                    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+                        <div>
+                            <p className="text-xs uppercase tracking-[0.2em] text-emerald-600">Points</p>
+                            <h2 className="text-xl md:text-2xl font-semibold text-slate-900">积分账户</h2>
+                            <p className="text-sm text-slate-500 mt-1">当前 {accounts.length} 位用户有积分账户</p>
+                        </div>
+                        <div className="flex flex-1 flex-col md:flex-row gap-3 md:items-center md:justify-end">
+                            <div className="flex items-center w-full md:w-80 bg-white/80 border border-slate-200/70 rounded-2xl px-3">
                                 <Search className="w-4 h-4 text-gray-400 mr-2" />
                                 <input
                                     value={query}
@@ -78,18 +91,18 @@ const AdminPointsPage = ({ onLogout }) => {
                                     className="flex-1 bg-transparent py-2 focus:outline-none text-sm"
                                 />
                             </div>
+                            <button
+                                onClick={loadAccounts}
+                                className="flex items-center justify-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-2xl hover:bg-emerald-700 transition text-sm shadow-md"
+                            >
+                                <RefreshCcw className="w-4 h-4" />
+                                刷新
+                            </button>
                         </div>
-                        <button
-                            onClick={loadAccounts}
-                            className="flex items-center bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition text-sm"
-                        >
-                            <RefreshCcw className="w-4 h-4 mr-2" />
-                            刷新
-                        </button>
                     </div>
 
                     {error && (
-                        <div className="mt-4 bg-red-100 text-red-700 px-3 py-2 rounded-lg border border-red-200">
+                        <div className="mt-4 bg-red-50 text-red-700 px-3 py-2 rounded-xl border border-red-200">
                             {error}
                         </div>
                     )}
@@ -100,34 +113,38 @@ const AdminPointsPage = ({ onLogout }) => {
                             正在加载...
                         </div>
                     ) : (
-                        <div className="mt-4 overflow-x-auto">
-                            <table className="min-w-full text-sm">
-                                <thead>
-                                    <tr className="text-left text-gray-500 border-b">
-                                        <th className="py-2 pr-4">用户名</th>
-                                        <th className="py-2 pr-4">当前积分</th>
-                                        <th className="py-2 pr-4">操作</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {accounts.map((account) => (
-                                        <tr key={account.username} className="border-b last:border-0">
-                                            <td className="py-3 pr-4 font-medium text-gray-800">{account.username}</td>
-                                            <td className="py-3 pr-4 text-indigo-600 font-semibold">{account.balance}</td>
-                                            <td className="py-3 pr-4">
+                        <div className="mt-4">
+                            {accounts.length === 0 && !isLoading ? (
+                                <p className="text-sm text-gray-500 py-6">暂无用户。</p>
+                            ) : (
+                                <>
+                                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                                        {pagedAccounts.map((account) => (
+                                            <div key={account.username} className="admin-panel rounded-2xl p-4 space-y-3">
+                                                <div>
+                                                    <p className="text-xs uppercase tracking-[0.2em] text-emerald-600">Account</p>
+                                                    <p className="text-lg font-semibold text-slate-900">{account.username}</p>
+                                                </div>
+                                                <div className="flex items-center justify-between text-sm text-slate-600">
+                                                    <span>当前积分</span>
+                                                    <span className="text-emerald-700 font-semibold text-lg">{account.balance}</span>
+                                                </div>
                                                 <button
                                                     onClick={() => handleAdjustPoints(account.username)}
-                                                    className="inline-flex items-center text-indigo-600 hover:text-indigo-800 text-sm"
+                                                    className="inline-flex items-center justify-center px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-sm"
                                                 >
-                                                    调整
+                                                    调整积分
                                                 </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                            {accounts.length === 0 && !isLoading && (
-                                <p className="text-sm text-gray-500 py-6">暂无用户。</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <Pagination
+                                        page={page}
+                                        totalPages={totalPages}
+                                        onPageChange={setPage}
+                                        className="mt-6"
+                                    />
+                                </>
                             )}
                         </div>
                     )}

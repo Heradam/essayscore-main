@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { apiRequest } from '../api/client.js';
 import TeacherHeader from './TeacherHeader.jsx';
+import Pagination from '../components/Pagination.jsx';
 
 const TeacherPage = ({ onLogout, role, view = 'all' }) => {
     const [classes, setClasses] = useState([]);
@@ -24,6 +25,11 @@ const TeacherPage = ({ onLogout, role, view = 'all' }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
     const [groupEdits, setGroupEdits] = useState({});
+    const [classesPage, setClassesPage] = useState(1);
+    const [membersPage, setMembersPage] = useState(1);
+    const [requestsPage, setRequestsPage] = useState(1);
+    const [historyPage, setHistoryPage] = useState(1);
+    const [studentsPage, setStudentsPage] = useState(1);
     const [classForm, setClassForm] = useState({ name: '', grade: '', subject: '', requireApproval: true });
     const gradeOptions = [
         { value: '', label: '请选择年级' },
@@ -66,6 +72,31 @@ const TeacherPage = ({ onLogout, role, view = 'all' }) => {
         () => classes.find((item) => String(item.id) === String(selectedClassId)) || null,
         [classes, selectedClassId]
     );
+    const inviteQrUrl = useMemo(() => {
+        if (!selectedClass?.inviteLink) {
+            return '';
+        }
+        const encoded = encodeURIComponent(selectedClass.inviteLink);
+        return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encoded}`;
+    }, [selectedClass?.inviteLink]);
+
+    const classesPageSize = 6;
+    const membersPageSize = 6;
+    const requestsPageSize = 6;
+    const historyPageSize = 6;
+    const studentsPageSize = 8;
+
+    const totalClassesPages = Math.max(1, Math.ceil(classes.length / classesPageSize));
+    const totalMembersPages = Math.max(1, Math.ceil(members.length / membersPageSize));
+    const totalRequestsPages = Math.max(1, Math.ceil(requests.length / requestsPageSize));
+    const totalHistoryPages = Math.max(1, Math.ceil(history.length / historyPageSize));
+    const totalStudentsPages = Math.max(1, Math.ceil(members.length / studentsPageSize));
+
+    const pagedClasses = classes.slice((classesPage - 1) * classesPageSize, classesPage * classesPageSize);
+    const pagedMembers = members.slice((membersPage - 1) * membersPageSize, membersPage * membersPageSize);
+    const pagedRequests = requests.slice((requestsPage - 1) * requestsPageSize, requestsPage * requestsPageSize);
+    const pagedHistory = history.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize);
+    const pagedStudents = members.slice((studentsPage - 1) * studentsPageSize, studentsPage * studentsPageSize);
 
     const updateSelectedClass = (classId) => {
         setSelectedClassId(classId);
@@ -154,6 +185,10 @@ const TeacherPage = ({ onLogout, role, view = 'all' }) => {
             setSelectedStudent(null);
             setHistory([]);
             setCurrentEssay(null);
+            setMembersPage(1);
+            setRequestsPage(1);
+            setHistoryPage(1);
+            setStudentsPage(1);
         }
     }, [selectedClassId]);
 
@@ -167,6 +202,23 @@ const TeacherPage = ({ onLogout, role, view = 'all' }) => {
             });
         }
     }, [selectedClass]);
+
+    useEffect(() => {
+        setClassesPage(1);
+    }, [classes]);
+
+    useEffect(() => {
+        setMembersPage(1);
+        setStudentsPage(1);
+    }, [members]);
+
+    useEffect(() => {
+        setRequestsPage(1);
+    }, [requests]);
+
+    useEffect(() => {
+        setHistoryPage(1);
+    }, [history]);
 
     const handleCreateClass = async () => {
         if (!newClass.name.trim()) {
@@ -329,55 +381,65 @@ const TeacherPage = ({ onLogout, role, view = 'all' }) => {
         <div className="min-h-screen bg-gray-100">
             <TeacherHeader role={role} onLogout={onLogout} />
 
-            <main className={`max-w-7xl mx-auto p-4 md:p-8 grid ${gridClassName} gap-6`}>
+            <main className={`max-w-7xl mx-auto p-4 md:p-10 grid ${gridClassName} gap-8`}>
                 {showClasses && (
-                <section className="bg-white rounded-2xl shadow-xl p-4 md:p-6 space-y-6">
+                <section className="surface-float rounded-3xl p-5 md:p-7 space-y-6 fade-in-up">
                     <div>
-                        <h2 className="text-lg font-bold text-gray-800 mb-3">班级列表</h2>
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-xl font-semibold text-slate-900">班级列表</h2>
+                            <span className="text-xs text-slate-400">共 {classes.length} 个班级</span>
+                        </div>
                         {isLoading && classes.length === 0 ? (
                             <div className="flex items-center justify-center text-gray-500">
-                                <Loader2 className="w-5 h-5 mr-2 animate-spin text-indigo-500" />
+                                <Loader2 className="w-5 h-5 mr-2 animate-spin text-emerald-600" />
                                 正在加载...
                             </div>
                         ) : (
-                            <div className="space-y-2">
+                            <div className="space-y-4">
                                 {classes.length === 0 && (
                                     <p className="text-sm text-gray-500">暂无班级，请先创建。</p>
                                 )}
-                                {classes.map((item) => (
-                                    <button
-                                        key={item.id}
-                                        onClick={() => updateSelectedClass(item.id)}
-                                        className={`w-full text-left px-3 py-2 rounded-lg transition border ${
-                                            String(selectedClassId) === String(item.id)
-                                                ? 'bg-indigo-100 text-indigo-700 border-indigo-200'
-                                                : 'hover:bg-gray-50 text-gray-700 border-transparent'
-                                        }`}
-                                    >
-                                        <p className="font-medium truncate">{item.name}</p>
-                                        <p className="text-xs text-gray-500">
-                                            {[item.grade, item.subject].filter(Boolean).join(' / ') || '未设置'}
-                                        </p>
-                                    </button>
-                                ))}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    {pagedClasses.map((item) => (
+                                        <button
+                                            key={item.id}
+                                            onClick={() => updateSelectedClass(item.id)}
+                                            className={`text-left px-3 py-3 rounded-2xl transition border ${
+                                                String(selectedClassId) === String(item.id)
+                                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-sm'
+                                                    : 'hover:bg-slate-50 text-slate-700 border-slate-200'
+                                            }`}
+                                        >
+                                            <p className="font-medium truncate">{item.name}</p>
+                                            <p className="text-xs text-gray-500 mt-1">
+                                                {[item.grade, item.subject].filter(Boolean).join(' / ') || '未设置'}
+                                            </p>
+                                        </button>
+                                    ))}
+                                </div>
+                                <Pagination
+                                    page={classesPage}
+                                    totalPages={totalClassesPages}
+                                    onPageChange={setClassesPage}
+                                />
                             </div>
                         )}
                     </div>
 
                     <div className="border-t pt-4">
-                        <h3 className="text-md font-semibold text-gray-800 mb-2">创建班级</h3>
+                        <h3 className="text-md font-semibold text-slate-800 mb-2">创建班级</h3>
                         <div className="space-y-2">
                             <input
                                 type="text"
                                 placeholder="班级名"
                                 value={newClass.name}
                                 onChange={(e) => setNewClass((prev) => ({ ...prev, name: e.target.value }))}
-                                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                                className="w-full p-2 border border-slate-200 rounded-xl focus:ring-emerald-300 focus:border-emerald-300"
                             />
                             <select
                                 value={newClass.grade}
                                 onChange={(e) => setNewClass((prev) => ({ ...prev, grade: e.target.value }))}
-                                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                                className="w-full p-2 border border-slate-200 rounded-xl focus:ring-emerald-300 focus:border-emerald-300"
                             >
                                 {gradeOptions.map((option) => (
                                     <option key={option.value} value={option.value}>
@@ -388,7 +450,7 @@ const TeacherPage = ({ onLogout, role, view = 'all' }) => {
                             <select
                                 value={newClass.subject}
                                 onChange={(e) => setNewClass((prev) => ({ ...prev, subject: e.target.value }))}
-                                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                                className="w-full p-2 border border-slate-200 rounded-xl focus:ring-emerald-300 focus:border-emerald-300"
                             >
                                 {subjectOptions.map((option) => (
                                     <option key={option.value} value={option.value}>
@@ -406,7 +468,7 @@ const TeacherPage = ({ onLogout, role, view = 'all' }) => {
                             </label>
                             <button
                                 onClick={handleCreateClass}
-                                className="w-full flex items-center justify-center bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition"
+                                className="w-full flex items-center justify-center bg-emerald-600 text-white py-2 rounded-xl hover:bg-emerald-700 transition shadow-md"
                             >
                                 <PlusCircle className="w-4 h-4 mr-2" />
                                 创建班级
@@ -417,60 +479,80 @@ const TeacherPage = ({ onLogout, role, view = 'all' }) => {
                 )}
 
                 {showManage && (
-                <section className="bg-white rounded-2xl shadow-xl p-4 md:p-6 space-y-6">
-                    <h2 className="text-lg font-bold text-gray-800">班级管理</h2>
+                <section className="surface-float rounded-3xl p-5 md:p-7 space-y-6 fade-in-up delay-1">
+                    <h2 className="text-xl font-semibold text-slate-900">班级管理</h2>
                     {!selectedClass ? (
                         <p className="text-sm text-gray-500">请选择一个班级。</p>
                     ) : (
                         <>
-                            <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 space-y-2">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <p className="text-sm text-gray-500">邀请码</p>
-                                        <p className="text-lg font-semibold text-indigo-700">{selectedClass.inviteCode}</p>
+                            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-2">
+                                <div className="grid gap-4 md:grid-cols-[1fr_auto] items-start">
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <p className="text-sm text-gray-500">邀请码</p>
+                                                <p className="text-lg font-semibold text-emerald-700">{selectedClass.inviteCode}</p>
+                                            </div>
+                                            <button
+                                                onClick={() => handleCopyInvite(selectedClass.inviteCode)}
+                                                className="flex items-center text-emerald-600 hover:text-emerald-800 text-sm"
+                                            >
+                                                <Copy className="w-4 h-4 mr-1" />
+                                                复制
+                                            </button>
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <p className="text-sm text-gray-500">邀请链接</p>
+                                                <p className="text-xs text-gray-600 break-all">{selectedClass.inviteLink}</p>
+                                            </div>
+                                            <button
+                                                onClick={() => handleCopyInvite(selectedClass.inviteLink)}
+                                                className="flex items-center text-emerald-600 hover:text-emerald-800 text-sm"
+                                            >
+                                                <Copy className="w-4 h-4 mr-1" />
+                                                复制
+                                            </button>
+                                        </div>
+                                        <button
+                                            onClick={handleRegenerateInvite}
+                                            className="inline-flex items-center text-sm text-emerald-700 hover:text-emerald-900"
+                                        >
+                                            <RefreshCcw className="w-4 h-4 mr-1" />
+                                            重置邀请码
+                                        </button>
                                     </div>
-                                    <button
-                                        onClick={() => handleCopyInvite(selectedClass.inviteCode)}
-                                        className="flex items-center text-indigo-600 hover:text-indigo-800 text-sm"
-                                    >
-                                        <Copy className="w-4 h-4 mr-1" />
-                                        复制
-                                    </button>
+                                    {inviteQrUrl && (
+                                        <div className="flex flex-col items-center gap-2 bg-white border border-emerald-100 rounded-2xl p-3 shadow-sm">
+                                            <img
+                                                src={inviteQrUrl}
+                                                alt="班级邀请二维码"
+                                                className="w-36 h-36 rounded-xl border border-gray-100"
+                                            />
+                                            <span className="text-xs text-gray-500">扫码加入班级</span>
+                                            <button
+                                                onClick={() => handleCopyInvite(selectedClass.inviteLink)}
+                                                className="text-xs text-emerald-700 hover:text-emerald-900"
+                                            >
+                                                复制链接
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <p className="text-sm text-gray-500">邀请链接</p>
-                                        <p className="text-xs text-gray-600 break-all">{selectedClass.inviteLink}</p>
-                                    </div>
-                                    <button
-                                        onClick={() => handleCopyInvite(selectedClass.inviteLink)}
-                                        className="flex items-center text-indigo-600 hover:text-indigo-800 text-sm"
-                                    >
-                                        <Copy className="w-4 h-4 mr-1" />
-                                        复制
-                                    </button>
-                                </div>
-                                <button
-                                    onClick={handleRegenerateInvite}
-                                    className="inline-flex items-center text-sm text-indigo-600 hover:text-indigo-800"
-                                >
-                                    <RefreshCcw className="w-4 h-4 mr-1" />
-                                    重置邀请码
-                                </button>
                             </div>
 
-                            <div className="grid grid-cols-1 gap-2">
+                            <div className="grid grid-cols-1 gap-3">
                                 <input
                                     type="text"
                                     value={classForm.name}
                                     onChange={(e) => setClassForm((prev) => ({ ...prev, name: e.target.value }))}
-                                    className="w-full p-2 border border-gray-300 rounded-lg"
+                                    className="w-full p-2 border border-slate-200 rounded-xl"
                                 />
                                 <div className="grid grid-cols-2 gap-2">
                                     <select
                                         value={classForm.grade}
                                         onChange={(e) => setClassForm((prev) => ({ ...prev, grade: e.target.value }))}
-                                        className="w-full p-2 border border-gray-300 rounded-lg"
+                                        className="w-full p-2 border border-slate-200 rounded-xl"
                                     >
                                         {gradeOptions.map((option) => (
                                             <option key={option.value} value={option.value}>
@@ -481,7 +563,7 @@ const TeacherPage = ({ onLogout, role, view = 'all' }) => {
                                     <select
                                         value={classForm.subject}
                                         onChange={(e) => setClassForm((prev) => ({ ...prev, subject: e.target.value }))}
-                                        className="w-full p-2 border border-gray-300 rounded-lg"
+                                        className="w-full p-2 border border-slate-200 rounded-xl"
                                     >
                                         {subjectOptions.map((option) => (
                                             <option key={option.value} value={option.value}>
@@ -505,61 +587,74 @@ const TeacherPage = ({ onLogout, role, view = 'all' }) => {
                                         subject: classForm.subject,
                                         requireApproval: classForm.requireApproval,
                                     })}
-                                    className="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition"
+                                    className="w-full bg-emerald-600 text-white py-2 rounded-xl hover:bg-emerald-700 transition shadow-md"
                                 >
                                     保存设置
                                 </button>
                             </div>
 
                             <div>
-                                <h3 className="text-md font-semibold text-gray-800 mb-2">学生名单</h3>
+                                <h3 className="text-md font-semibold text-slate-800 mb-2">学生名单</h3>
                                 {members.length === 0 ? (
                                     <p className="text-sm text-gray-500">暂无学生。</p>
                                 ) : (
-                                    <div className="space-y-2">
-                                        {members.map((member) => (
-                                            <div key={member.username} className="border border-gray-200 rounded-lg p-2">
-                                                <div className="flex items-center justify-between">
-                                                    <span className="font-medium text-gray-800">{member.username}</span>
-                                                    <button
-                                                        onClick={() => handleRemoveMember(member.username)}
-                                                        className="text-xs text-red-500 hover:text-red-600"
-                                                    >
-                                                        移除
-                                                    </button>
+                                    <div className="space-y-4">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                            {pagedMembers.map((member) => (
+                                                <div key={member.username} className="border border-slate-200 rounded-2xl p-3 bg-white shadow-sm">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="font-medium text-gray-800">{member.username}</span>
+                                                        <button
+                                                            onClick={() => handleRemoveMember(member.username)}
+                                                            className="text-xs text-rose-500 hover:text-rose-600"
+                                                        >
+                                                            移除
+                                                        </button>
+                                                    </div>
                                                 </div>
-                                                <div className="mt-2" />
-                                            </div>
-                                        ))}
+                                            ))}
+                                        </div>
+                                        <Pagination
+                                            page={membersPage}
+                                            totalPages={totalMembersPages}
+                                            onPageChange={setMembersPage}
+                                        />
                                     </div>
                                 )}
                             </div>
 
                             <div>
-                                <h3 className="text-md font-semibold text-gray-800 mb-2">加入申请</h3>
+                                <h3 className="text-md font-semibold text-slate-800 mb-2">加入申请</h3>
                                 {requests.length === 0 ? (
                                     <p className="text-sm text-gray-500">暂无申请。</p>
                                 ) : (
-                                    <div className="space-y-2">
-                                        {requests.map((req) => (
-                                            <div key={req.username} className="flex items-center justify-between border border-gray-200 rounded-lg p-2">
-                                                <span className="text-sm text-gray-800">{req.username}</span>
-                                                <div className="flex items-center space-x-2">
-                                                    <button
-                                                        onClick={() => handleApprove(req.username)}
-                                                        className="text-green-600 hover:text-green-700"
-                                                    >
-                                                        <Check className="w-4 h-4" />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleReject(req.username)}
-                                                        className="text-red-500 hover:text-red-600"
-                                                    >
-                                                        <X className="w-4 h-4" />
-                                                    </button>
+                                    <div className="space-y-4">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                            {pagedRequests.map((req) => (
+                                                <div key={req.username} className="flex items-center justify-between border border-slate-200 rounded-2xl p-3 bg-white shadow-sm">
+                                                    <span className="text-sm text-gray-800">{req.username}</span>
+                                                    <div className="flex items-center space-x-2">
+                                                        <button
+                                                            onClick={() => handleApprove(req.username)}
+                                                            className="text-emerald-600 hover:text-emerald-700"
+                                                        >
+                                                            <Check className="w-4 h-4" />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleReject(req.username)}
+                                                            className="text-rose-500 hover:text-rose-600"
+                                                        >
+                                                            <X className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ))}
+                                            ))}
+                                        </div>
+                                        <Pagination
+                                            page={requestsPage}
+                                            totalPages={totalRequestsPages}
+                                            onPageChange={setRequestsPage}
+                                        />
                                     </div>
                                 )}
                             </div>
@@ -569,12 +664,20 @@ const TeacherPage = ({ onLogout, role, view = 'all' }) => {
                 )}
 
                 {showHistory && (
-                <section className="bg-white rounded-2xl shadow-xl p-4 md:p-6">
-                    <h2 className="text-lg font-bold text-gray-800 mb-4">
-                        学生历史 {selectedStudent ? `- ${selectedStudent}` : ''}
-                    </h2>
+                <section className="surface-float rounded-3xl p-5 md:p-7 fade-in-up delay-2">
+                    <div className="flex items-center justify-between mb-4">
+                        <div>
+                            <h2 className="text-lg font-bold text-gray-800">
+                                学生历史 {selectedStudent ? `- ${selectedStudent}` : ''}
+                            </h2>
+                            <p className="text-xs text-slate-400 mt-1">按学生查看作文历史</p>
+                        </div>
+                        {selectedStudent && (
+                            <span className="text-xs text-slate-400">共 {history.length} 篇</span>
+                        )}
+                    </div>
                     {error && (
-                        <div className="mb-4 bg-red-100 text-red-700 px-3 py-2 rounded-lg border border-red-200">
+                        <div className="mb-4 bg-red-50 text-red-700 px-3 py-2 rounded-xl border border-red-200">
                             {error}
                         </div>
                     )}
@@ -584,16 +687,24 @@ const TeacherPage = ({ onLogout, role, view = 'all' }) => {
                             {members.length === 0 ? (
                                 <p className="text-sm text-gray-500">暂无学生。</p>
                             ) : (
-                                <div className="space-y-2">
-                                    {members.map((member) => (
-                                        <button
-                                            key={member.username}
-                                            onClick={() => loadHistory(member.username)}
-                                            className="w-full text-left px-3 py-2 rounded-lg border border-gray-200 hover:border-indigo-300 hover:shadow-sm transition"
-                                        >
-                                            <span className="font-medium text-gray-800">{member.username}</span>
-                                        </button>
-                                    ))}
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        {pagedStudents.map((member) => (
+                                            <button
+                                                key={member.username}
+                                                onClick={() => loadHistory(member.username)}
+                                                className="text-left px-4 py-3 rounded-2xl border border-slate-200 hover:border-emerald-200 hover:shadow-sm transition bg-white/70"
+                                            >
+                                                <span className="font-medium text-gray-800">{member.username}</span>
+                                                <p className="text-xs text-slate-400 mt-1">点击查看作文</p>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <Pagination
+                                        page={studentsPage}
+                                        totalPages={totalStudentsPages}
+                                        onPageChange={setStudentsPage}
+                                    />
                                 </div>
                             )}
                         </div>
@@ -601,65 +712,77 @@ const TeacherPage = ({ onLogout, role, view = 'all' }) => {
                     {!selectedStudent ? (
                         <p className="text-sm text-gray-500">请选择学生查看历史。</p>
                     ) : (
-                        <div className="space-y-2">
+                        <div className="space-y-4">
                             {history.length === 0 ? (
                                 <p className="text-sm text-gray-500">暂无历史记录。</p>
                             ) : (
-                                history.map((item) => (
-                                    <button
-                                        key={item.id}
-                                        onClick={() => loadEssay(item.id)}
-                                        className="w-full text-left p-3 rounded-lg border border-gray-200 hover:border-indigo-300 hover:shadow-md transition"
-                                    >
-                                        <p className="font-medium text-gray-800 truncate">
-                                            {item.title || '无标题作文'}
-                                        </p>
-                                        <p className="text-xs text-gray-500 mt-1">
-                                            {new Date(item.timestamp).toLocaleString('zh-CN')}
-                                        </p>
-                                    </button>
-                                ))
+                                <>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        {pagedHistory.map((item) => (
+                                            <button
+                                                key={item.id}
+                                                onClick={() => loadEssay(item.id)}
+                                                className="text-left p-4 rounded-2xl border border-slate-200 hover:border-emerald-200 hover:shadow-md transition bg-white/80 relative overflow-hidden"
+                                            >
+                                                <div className="absolute top-3 right-3 text-[10px] px-2 py-1 rounded-full bg-white/80 border border-slate-200 text-slate-500">
+                                                    {new Date(item.timestamp).toLocaleDateString('zh-CN')}
+                                                </div>
+                                                <p className="font-semibold text-gray-800 line-clamp-2">
+                                                    {item.title || '无标题作文'}
+                                                </p>
+                                                <p className="text-xs text-slate-400 mt-2">点击查看评分与润色</p>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <Pagination
+                                        page={historyPage}
+                                        totalPages={totalHistoryPages}
+                                        onPageChange={setHistoryPage}
+                                    />
+                                </>
                             )}
                         </div>
                     )}
 
                     {currentEssay && (
-                        <div className="mt-6 border-t border-gray-200 pt-6">
+                        <div className="mt-6 border-t border-slate-200 pt-6">
                             <div className="flex items-center mb-3">
-                                <BookOpen className="w-5 h-5 text-indigo-500 mr-2" />
+                                <BookOpen className="w-5 h-5 text-emerald-600 mr-2" />
                                 <h3 className="text-lg font-bold text-gray-800">作文详情</h3>
                             </div>
-                            <div className="space-y-4 text-sm text-gray-700">
-                                <div>
-                                    <p className="font-semibold text-gray-800">题目要求</p>
-                                    <p className="whitespace-pre-wrap mt-1">{currentEssay.topic}</p>
+                            <div className="space-y-5 text-sm text-gray-700">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+                                        <p className="text-xs text-slate-400 mb-2">题目要求</p>
+                                        <p className="whitespace-pre-wrap leading-relaxed">{currentEssay.topic}</p>
+                                    </div>
+                                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                                        <p className="text-xs text-emerald-700 mb-2">评分</p>
+                                        <p className="text-3xl font-semibold text-emerald-700">{currentEssay.score}</p>
+                                    </div>
                                 </div>
-                                <div>
+                                <div className="rounded-2xl border border-slate-200 bg-white p-4">
                                     <p className="font-semibold text-gray-800">原文</p>
-                                    <p className="whitespace-pre-wrap mt-1">{currentEssay.originalContent}</p>
+                                    <p className="whitespace-pre-wrap mt-2 leading-relaxed">{currentEssay.originalContent}</p>
                                 </div>
-                                <div>
-                                    <p className="font-semibold text-gray-800">评分</p>
-                                    <p className="mt-1 text-indigo-600">{currentEssay.score}</p>
-                                </div>
-                                <div>
+                                <div className="rounded-2xl border border-slate-200 bg-white p-4">
                                     <p className="font-semibold text-gray-800">反馈</p>
                                     {currentEssay.feedback && currentEssay.feedback.length > 0 ? (
-                                        <ul className="space-y-2 mt-1">
+                                        <div className="mt-3 space-y-3">
                                             {currentEssay.feedback.map((item, index) => (
-                                                <li key={`${item.type}-${index}`}>
-                                                    <span className="font-medium text-indigo-600">{item.type}：</span>
-                                                    {item.detail}
-                                                </li>
+                                                <div key={`${item.type}-${index}`} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                                                    <span className="font-semibold text-emerald-700">{item.type}</span>
+                                                    <p className="text-sm text-slate-600 mt-1">{item.detail}</p>
+                                                </div>
                                             ))}
-                                        </ul>
+                                        </div>
                                     ) : (
-                                        <p className="mt-1 text-gray-500">暂无反馈。</p>
+                                        <p className="mt-2 text-gray-500">暂无反馈。</p>
                                     )}
                                 </div>
-                                <div>
+                                <div className="rounded-2xl border border-slate-200 bg-white p-4">
                                     <p className="font-semibold text-gray-800">润色后文章</p>
-                                    <p className="whitespace-pre-wrap mt-1">{currentEssay.revisedContent}</p>
+                                    <p className="whitespace-pre-wrap mt-2 leading-relaxed">{currentEssay.revisedContent}</p>
                                 </div>
                             </div>
                         </div>

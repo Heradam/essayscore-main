@@ -25,6 +25,9 @@ OCR_API_KEY=your_baidu_ocr_key
 OCR_SECRET_KEY=your_baidu_ocr_secret
 JWT_SECRET_KEY=change-this-in-production
 FRONTEND_BASE_URL=http://localhost:5173
+LLM_TOKEN_QUOTA=1000000
+LLM_MODEL=qwen-max
+LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 ```
 
 ## 后端（本地）
@@ -68,14 +71,34 @@ ADD COLUMN must_change_password TINYINT(1) DEFAULT 0,
 ADD COLUMN must_change_password_expires_at DATETIME NULL,
 ADD COLUMN grade VARCHAR(20),
 ADD COLUMN subject VARCHAR(20),
-ADD COLUMN teacher_id VARCHAR(50);
+ADD COLUMN teacher_id VARCHAR(50),
+ADD COLUMN phone VARCHAR(32),
+ADD COLUMN email VARCHAR(255);
+```
+
+新增找回密码表：
+
+```sql
+CREATE TABLE password_reset_requests (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  username VARCHAR(100) NOT NULL,
+  contact VARCHAR(255),
+  code VARCHAR(20) NOT NULL,
+  expires_at DATETIME NOT NULL,
+  used_at DATETIME NULL,
+  created_at DATETIME NOT NULL,
+  CONSTRAINT fk_password_reset_user
+    FOREIGN KEY (username) REFERENCES users(username)
+);
 ```
 
 ## API 一览
 
-- `POST /api/v1/register` 用户注册
+- `POST /api/v1/register` 用户注册（必填：username/password/phone/email）
 - `POST /api/v1/login` 用户登录
 - `POST /api/v1/change-password` 修改密码
+- `POST /api/v1/auth/forgot-password` 忘记密码（提示联系管理员）
+- `POST /api/v1/auth/reset-password` 自助重置（已禁用）
 - `POST /api/v1/score` 作文评分与润色
 - `GET /api/v1/history` 我的历史列表
 - `GET /api/v1/history/<username>` 历史列表（仅本人）
@@ -88,9 +111,15 @@ ADD COLUMN teacher_id VARCHAR(50);
 - `GET /api/v1/admin/ping` 仅 admin
 - `GET /api/v1/admin/users` 用户列表（admin）
 - `PATCH /api/v1/admin/users/<username>` 更新用户（admin）
-- `POST /api/v1/admin/users/<username>/reset-password` 重置密码（admin）
+- `POST /api/v1/admin/users/<username>/reset-password` 重置密码为 123456（admin）
 - `POST /api/v1/admin/points/adjust` 管理员积分调整（admin）
 - `GET /api/v1/admin/teachers` 教师列表（admin）
+- `GET /api/v1/admin/llm/status` LLM 用量与额度（admin）
+- `GET /api/v1/admin/llm/configs` LLM 配置列表（admin）
+- `POST /api/v1/admin/llm/configs` 新增 LLM 配置（admin）
+- `PATCH /api/v1/admin/llm/configs/<id>` 更新 LLM 配置（admin）
+- `POST /api/v1/admin/llm/configs/<id>/activate` 切换当前 LLM（admin）
+- `DELETE /api/v1/admin/llm/configs/<id>` 删除 LLM 配置（admin）
 - `GET /api/v1/teacher/ping` teacher 或 admin
 - `GET /api/v1/teacher/students` 学生列表（teacher/admin）
 - `GET /api/v1/teacher/history/<username>` 学生历史（teacher/admin）
@@ -161,9 +190,8 @@ ADD COLUMN teacher_id VARCHAR(50);
 
 #### 管理员重置密码操作
 1. 进入“管理后台”页面，找到目标用户。
-2. 点击“重置密码”，输入新密码（必填，系统不再自动生成）。
-3. 弹窗提示重置成功与过期时间，将新密码发送给用户。
-4. 用户下次登录会被强制跳转到“修改密码”页面。
+2. 点击“重置密码”，系统将该用户密码重置为 `123456`。
+3. 用户下次登录会被强制跳转到“修改密码”页面。
 
 #### 邀请链接使用示例
 1. 学生端点击“生成邀请链接”（示例：`http://localhost:5173/invite/signup/abcd1234`）。

@@ -3,6 +3,8 @@ import os
 
 from openai import OpenAI
 
+from services.llm_config_service import get_active_config
+
 
 LLM_RESPONSE_SCHEMA = {
     "type": "object",
@@ -39,23 +41,52 @@ LLM_RESPONSE_SCHEMA = {
     "required": ["score", "feedback", "revised_content"]
 }
 
-LLM_MODEL = "qwen-max"
-_client = None
+DEFAULT_MODEL = "qwen-max"
+DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+_clients = {}
+
+
+def get_active_model_name():
+    config = get_active_config()
+    if config:
+        return config.model_name
+    return os.getenv("LLM_MODEL", DEFAULT_MODEL)
 
 
 def _get_client():
-    global _client
-    if _client is not None:
-        return _client
+    config = get_active_config()
+    if config:
+        cache_key = f"{config.id}:{config.base_url}:{config.model_name}"
+        cached = _clients.get(cache_key)
+        if cached:
+            return cached
+        try:
+            client = OpenAI(
+                api_key=config.api_key,
+                base_url=config.base_url or DEFAULT_BASE_URL,
+            )
+            _clients[cache_key] = client
+            return client
+        except Exception as exc:
+            print(f"OpenAI Client Initialization Failed: {exc}")
+            return None
+
+    api_key = os.getenv("DASHSCOPE_API_KEY")
+    if not api_key:
+        return None
+    cache_key = "default"
+    if cache_key in _clients:
+        return _clients[cache_key]
     try:
-        _client = OpenAI(
-            api_key=os.getenv("DASHSCOPE_API_KEY"),
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        client = OpenAI(
+            api_key=api_key,
+            base_url=os.getenv("LLM_BASE_URL", DEFAULT_BASE_URL),
         )
+        _clients[cache_key] = client
+        return client
     except Exception as exc:
         print(f"OpenAI Client Initialization Failed: {exc}")
-        _client = None
-    return _client
+        return None
 
 
 def ai_score_and_refine(topic, content):
@@ -86,7 +117,7 @@ def ai_score_and_refine(topic, content):
 
     try:
         response = client.chat.completions.create(
-            model=LLM_MODEL,
+            model=get_active_model_name(),
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -95,6 +126,11 @@ def ai_score_and_refine(topic, content):
         )
 
         response_text = response.choices[0].message.content
+        usage = None
+        try:
+            usage = getattr(response, "usage", None) or response.get("usage")
+        except Exception:
+            usage = None
         result = json.loads(response_text)
 
         score = result["score"]
@@ -103,7 +139,7 @@ def ai_score_and_refine(topic, content):
             for type_key, detail_value in result["feedback"].items()
         ]
         revised_content = result["revised_content"]
-        return score, feedback, revised_content
+        return score, feedback, revised_content, usage
 
     except Exception as exc:
         print(f"LLM API Call Failed: {exc}")

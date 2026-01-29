@@ -2,12 +2,17 @@ import React, { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import StudentHeader from './StudentHeader.jsx';
 import { apiRequest } from '../api/client.js';
+import Pagination from '../components/Pagination.jsx';
 
 const StudentPointsPage = ({ role, onLogout }) => {
     const [points, setPoints] = useState({ balance: 0, lifetimeEarned: 0, lifetimeSpent: 0 });
     const [ledger, setLedger] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [page, setPage] = useState(1);
+    const pageSize = 8;
+    const totalPages = Math.max(1, Math.ceil(ledger.length / pageSize));
+    const pagedLedger = ledger.slice((page - 1) * pageSize, page * pageSize);
     const reasonLabels = {
         'signup.bonus': '注册奖励',
         'invite.reward': '邀请奖励',
@@ -35,6 +40,9 @@ const StudentPointsPage = ({ role, onLogout }) => {
     useEffect(() => {
         loadPoints();
     }, []);
+    useEffect(() => {
+        setPage(1);
+    }, [ledger]);
 
     return (
         <div className="min-h-screen bg-gray-100">
@@ -73,21 +81,30 @@ const StudentPointsPage = ({ role, onLogout }) => {
                             正在加载...
                         </div>
                     ) : (
-                        <div className="space-y-2">
+                        <div className="space-y-4">
                             {ledger.length === 0 ? (
                                 <p className="text-sm text-gray-500">暂无明细。</p>
                             ) : (
-                                ledger.map((item, index) => (
-                                    <div key={`${item.createdAt}-${index}`} className="flex items-center justify-between text-sm text-gray-600 border border-gray-100 rounded-lg px-3 py-2 bg-white">
-                                        <div>
-                                            <div className="font-medium">{getReasonLabel(item.reasonCode)}</div>
-                                            <div className="text-xs text-gray-400">{item.createdAt}</div>
-                                        </div>
-                                        <div className={`font-semibold ${item.delta >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                            {item.delta >= 0 ? `+${item.delta}` : item.delta}
-                                        </div>
+                                <>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        {pagedLedger.map((item, index) => (
+                                            <div key={`${item.createdAt}-${index}`} className="flex items-center justify-between text-sm text-gray-600 border border-gray-100 rounded-2xl px-4 py-3 bg-white shadow-sm">
+                                                <div>
+                                                    <div className="font-medium">{getReasonLabel(item.reasonCode)}</div>
+                                                    <div className="text-xs text-gray-400">{item.createdAt}</div>
+                                                </div>
+                                                <div className={`font-semibold ${item.delta >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                                    {item.delta >= 0 ? `+${item.delta}` : item.delta}
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
-                                ))
+                                    <Pagination
+                                        page={page}
+                                        totalPages={totalPages}
+                                        onPageChange={setPage}
+                                    />
+                                </>
                             )}
                         </div>
                     )}

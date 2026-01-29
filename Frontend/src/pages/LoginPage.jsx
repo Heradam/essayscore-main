@@ -58,7 +58,7 @@ const callLoginApi = async (username, password) => {
 };
 
 const LoginPage = ({ onLogin }) => {
-    const [username, setUsername] = useState('');
+    const [username, setUsername] = useState(() => localStorage.getItem('rememberUsername') || '');
     const [password, setPassword] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(() => {
@@ -69,6 +69,7 @@ const LoginPage = ({ onLogin }) => {
         }
         return null;
     });
+    const [rememberMe, setRememberMe] = useState(() => localStorage.getItem('rememberMe') === 'true');
     const navigate = useNavigate();
 
     const handleSubmit = async (e) => {
@@ -88,6 +89,12 @@ const LoginPage = ({ onLogin }) => {
                     localStorage.removeItem('authRole');
                 }
                 localStorage.setItem('authMustChange', result.mustChangePassword ? 'true' : 'false');
+                if (rememberMe) {
+                    localStorage.setItem('rememberUsername', username);
+                } else {
+                    localStorage.removeItem('rememberUsername');
+                }
+                localStorage.setItem('rememberMe', rememberMe ? 'true' : 'false');
                 // 登录成功，更新父组件/全局状态
                 onLogin(result.user.username, result.role, result.mustChangePassword);
                 if (result.mustChangePassword) {
@@ -117,30 +124,62 @@ const LoginPage = ({ onLogin }) => {
     };
 
     return (
-        <div className="flex flex-col min-h-screen">
-            <header className="sticky top-0 bg-white shadow-lg p-4 flex items-center justify-between z-30 w-full">
+        <div className="min-h-screen bg-gray-100">
+            <header className="sticky top-0 bg-white/80 backdrop-blur p-4 flex items-center justify-between z-30 w-full border-b border-slate-200">
                 <div className="flex items-center">
                     <h1 className="text-xl font-bold text-gray-800 flex items-center">
-                        <Edit3 className="w-5 h-5 mr-2 text-indigo-500" />
+                        <Edit3 className="w-5 h-5 mr-2 text-indigo-600" />
                         AI 作文助手
                     </h1>
                 </div>
+                <span className="hidden md:inline-flex items-center gap-2 text-sm glow-pill px-3 py-1 rounded-full">
+                    轻量 · 专注 · 易用
+                </span>
             </header>
-            <div className="flex flex-grow items-center justify-center bg-gray-100 p-4">
-                <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-2xl border-t-4 border-indigo-600">
-                    <h2 className="text-3xl font-extrabold text-gray-900 text-center mb-6 flex items-center justify-center">
-                        <LogIn className="w-7 h-7 mr-3 text-indigo-600" />
-                        用户登录
-                    </h2>
-                    <p className="text-center text-sm text-gray-500 mb-8">使用账号密码登录 AI 作文助手。</p>
+
+            <div className="relative overflow-hidden">
+                <div className="absolute -top-32 left-1/2 h-72 w-[780px] -translate-x-1/2 rounded-full bg-gradient-to-r from-emerald-100 via-teal-50 to-amber-50 blur-3xl opacity-80" />
+                <div className="absolute right-0 top-24 h-48 w-48 rounded-full bg-amber-100/60 blur-2xl" />
+            </div>
+
+            <div className="flex flex-col lg:flex-row items-center justify-center gap-10 px-6 py-12">
+                <div className="w-full lg:w-[420px] space-y-6 fade-in-up">
+                    <div className="space-y-3">
+                        <span className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-slate-400">Welcome</span>
+                        <h2 className="text-4xl font-semibold text-slate-900">写作，从此更轻松</h2>
+                        <p className="text-sm text-slate-500 leading-relaxed">
+                            登录后即可体验 AI 评分、润色与结构化反馈，让每一次写作更有方向。
+                        </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        {['实时评分', '结构反馈', '班级协作', '积分体系'].map((item, index) => (
+                            <div key={item} className={`surface-float rounded-xl p-3 text-xs text-slate-600 fade-in-up delay-${index + 1}`}>
+                                {item}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="w-full max-w-md surface-float rounded-3xl p-8 lift fade-in-up delay-2">
+                    <div className="flex items-center gap-3 mb-6">
+                        <div className="h-12 w-12 rounded-2xl bg-emerald-100 flex items-center justify-center text-emerald-700">
+                            <LogIn className="w-6 h-6" />
+                        </div>
+                        <div>
+                            <h3 className="text-2xl font-semibold text-slate-900">用户登录</h3>
+                            <p className="text-xs text-slate-500">使用账号密码登录 AI 作文助手</p>
+                        </div>
+                    </div>
+
                     {error && (
-                        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative mb-6">
-                            <span className="block">{error}</span>
+                        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-6 text-sm">
+                            {error}
                         </div>
                     )}
-                    <form onSubmit={handleSubmit} className="space-y-6">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
+
+                    <form onSubmit={handleSubmit} className="space-y-5">
+                        <div className="space-y-2">
+                            <label className="block text-xs font-semibold text-slate-500 flex items-center">
                                 <User className="w-4 h-4 mr-2" /> 用户名
                             </label>
                             <input
@@ -149,12 +188,12 @@ const LoginPage = ({ onLogin }) => {
                                 onChange={(e) => setUsername(e.target.value)}
                                 required
                                 placeholder="输入用户名"
-                                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                                className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-300 focus:border-emerald-300 transition"
                                 disabled={isLoading}
                             />
                         </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
+                        <div className="space-y-2">
+                            <label className="block text-xs font-semibold text-slate-500 flex items-center">
                                 <Lock className="w-4 h-4 mr-2" /> 密码
                             </label>
                             <input
@@ -163,14 +202,33 @@ const LoginPage = ({ onLogin }) => {
                                 onChange={(e) => setPassword(e.target.value)}
                                 required
                                 placeholder="输入密码"
-                                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                                className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-300 focus:border-emerald-300 transition"
                                 disabled={isLoading}
                             />
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-slate-500">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={rememberMe}
+                                    onChange={(e) => setRememberMe(e.target.checked)}
+                                    disabled={isLoading}
+                                />
+                                记住密码（仅记住账号）
+                            </label>
+                            <button
+                                type="button"
+                                onClick={() => navigate('/forgot-password')}
+                                className="text-emerald-600 hover:text-emerald-700 font-semibold"
+                                disabled={isLoading}
+                            >
+                                忘记密码？
+                            </button>
                         </div>
                         <button
                             type="submit"
                             disabled={isLoading}
-                            className="w-full py-3 px-4 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition duration-300 disabled:bg-indigo-400 flex items-center justify-center"
+                            className="w-full py-3 px-4 bg-emerald-600 text-white font-semibold rounded-xl shadow-lg hover:bg-emerald-700 transition duration-300 disabled:bg-emerald-300 flex items-center justify-center"
                         >
                             {isLoading ? (
                                 <>
@@ -184,16 +242,16 @@ const LoginPage = ({ onLogin }) => {
                         </button>
                     </form>
 
-                    <p className="mt-6 text-center text-sm text-gray-600">
-                        还没有账号？
+                    <div className="mt-5 flex items-center justify-between text-xs text-slate-500">
+                        <span>还没有账号？</span>
                         <button
                             onClick={() => navigate('/register')}
-                            className="font-medium text-indigo-600 hover:text-indigo-500 ml-1 transition duration-150"
+                            className="font-semibold text-emerald-600 hover:text-emerald-700"
                             disabled={isLoading}
                         >
                             立即注册
                         </button>
-                    </p>
+                    </div>
                 </div>
             </div>
         </div>

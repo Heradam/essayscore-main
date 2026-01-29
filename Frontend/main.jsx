@@ -9,6 +9,7 @@ import './index.css';
 import HomePage from './src/pages/HomePage.jsx';
 import LoginPage from './src/pages/LoginPage.jsx';
 import RegisterPage from './src/pages/RegisterPage.jsx';
+import ForgotPasswordPage from './src/pages/ForgotPasswordPage.jsx';
 import TeacherClassesPage from './src/pages/TeacherClassesPage.jsx';
 import TeacherManagePage from './src/pages/TeacherManagePage.jsx';
 import TeacherHistoryPage from './src/pages/TeacherHistoryPage.jsx';
@@ -18,6 +19,7 @@ import AdminStudentsPage from './src/pages/AdminStudentsPage.jsx';
 import AdminTeachersPage from './src/pages/AdminTeachersPage.jsx';
 import AdminUsersPage from './src/pages/AdminUsersPage.jsx';
 import AdminPointsPage from './src/pages/AdminPointsPage.jsx';
+import AdminLLMPage from './src/pages/AdminLLMPage.jsx';
 import ChangePasswordPage from './src/pages/ChangePasswordPage.jsx';
 import InviteSignupPage from './src/pages/InviteSignupPage.jsx';
 import StudentHistoryPage from './src/pages/StudentHistoryPage.jsx';
@@ -139,6 +141,7 @@ const App = () => {
                     {/* LoginPage 现在需要传递 handleLogin 方法 */}
                     <Route path="/login" element={<LoginPage onLogin={handleLogin} />} />
                     <Route path="/register" element={<RegisterPage />} />
+                    <Route path="/forgot-password" element={<ForgotPasswordPage />} />
                     <Route path="/invite/:code" element={<InvitePage />} />
                     <Route path="/invite/signup/:code" element={<InviteSignupPage />} />
                     <Route
@@ -285,6 +288,16 @@ const App = () => {
                             <RoleRoute isAuthenticated={isAuthenticated} role={role} allowed={['admin']}>
                                 <MustChangeGuard mustChange={mustChange}>
                                     <AdminPointsPage onLogout={handleLogout} />
+                                </MustChangeGuard>
+                            </RoleRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/llm"
+                        element={
+                            <RoleRoute isAuthenticated={isAuthenticated} role={role} allowed={['admin']}>
+                                <MustChangeGuard mustChange={mustChange}>
+                                    <AdminLLMPage onLogout={handleLogout} />
                                 </MustChangeGuard>
                             </RoleRoute>
                         }

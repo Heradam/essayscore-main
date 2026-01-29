@@ -15,4 +15,6 @@ class User(db.Model):
     grade = db.Column(db.String(20))
     subject = db.Column(db.String(20))
     teacher_id = db.Column(db.String(50))
+    phone = db.Column(db.String(32))
+    email = db.Column(db.String(255))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

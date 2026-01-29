@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import StudentHeader from './StudentHeader.jsx';
 import { apiRequest } from '../api/client.js';
+import Pagination from '../components/Pagination.jsx';
 
 const StudentClassPage = ({ role, onLogout }) => {
     const [joinCode, setJoinCode] = useState('');
@@ -9,6 +10,10 @@ const StudentClassPage = ({ role, onLogout }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState(null);
     const [error, setError] = useState(null);
+    const [page, setPage] = useState(1);
+    const pageSize = 6;
+    const totalPages = Math.max(1, Math.ceil(classes.length / pageSize));
+    const pagedClasses = classes.slice((page - 1) * pageSize, page * pageSize);
 
     const loadMyClasses = async () => {
         setIsLoading(true);
@@ -26,6 +31,9 @@ const StudentClassPage = ({ role, onLogout }) => {
     useEffect(() => {
         loadMyClasses();
     }, []);
+    useEffect(() => {
+        setPage(1);
+    }, [classes]);
 
     const handleJoin = async () => {
         if (!joinCode.trim()) {
@@ -81,28 +89,37 @@ const StudentClassPage = ({ role, onLogout }) => {
                             正在加载...
                         </div>
                     ) : (
-                        <div className="space-y-3">
+                        <div className="space-y-4">
                             {classes.length === 0 ? (
                                 <p className="text-sm text-gray-500">暂无加入的班级。</p>
                             ) : (
-                                classes.map((item) => (
-                                    <div key={item.id} className="border border-gray-200 rounded-xl p-4 flex items-center justify-between">
-                                        <div>
-                                            <p className="font-semibold text-gray-800">{item.name}</p>
-                                            <p className="text-sm text-gray-500">
-                                                {[item.grade, item.subject].filter(Boolean).join(' / ') || '未设置'}
-                                            </p>
-                                            <p className="text-xs text-gray-400 mt-1">老师：{item.teacherUsername}</p>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleLeave(item.id)}
-                                            className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
-                                        >
-                                            退出班级
-                                        </button>
+                                <>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        {pagedClasses.map((item) => (
+                                            <div key={item.id} className="border border-gray-200 rounded-2xl p-4 bg-white shadow-sm flex flex-col justify-between">
+                                                <div>
+                                                    <p className="font-semibold text-gray-800">{item.name}</p>
+                                                    <p className="text-sm text-gray-500">
+                                                        {[item.grade, item.subject].filter(Boolean).join(' / ') || '未设置'}
+                                                    </p>
+                                                    <p className="text-xs text-gray-400 mt-1">老师：{item.teacherUsername}</p>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleLeave(item.id)}
+                                                    className="mt-4 px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition"
+                                                >
+                                                    退出班级
+                                                </button>
+                                            </div>
+                                        ))}
                                     </div>
-                                ))
+                                    <Pagination
+                                        page={page}
+                                        totalPages={totalPages}
+                                        onPageChange={setPage}
+                                    />
+                                </>
                             )}
                         </div>
                     )}

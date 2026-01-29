@@ -16,12 +16,18 @@ def register_user():
     data = request.get_json()
     username = data.get("username") if data else None
     password = data.get("password") if data else None
+    phone = data.get("phone") if data else None
+    email = data.get("email") if data else None
 
-    if not username or not password:
-        return jsonify({"message": "用户名和密码是必填项"}), 400
+    if not username or not password or not phone or not email:
+        return jsonify({"message": "用户名、密码、手机号、邮箱是必填项"}), 400
 
     if len(username) < 3 or len(password) < 6:
         return jsonify({"message": "用户名和密码必须满足最低长度要求"}), 400
+    if "@" not in email:
+        return jsonify({"message": "邮箱格式不正确"}), 400
+    if len(phone) < 6:
+        return jsonify({"message": "手机号格式不正确"}), 400
 
     try:
         existing = db.session.get(User, username)
@@ -39,7 +45,12 @@ def register_user():
                 return jsonify({"message": "不能使用自己的邀请码"}), 400
 
         hashed_password = generate_password_hash(password, method="pbkdf2:sha256")
-        user = User(username=username, password_hash=hashed_password)
+        user = User(
+            username=username,
+            password_hash=hashed_password,
+            phone=phone,
+            email=email,
+        )
         db.session.add(user)
 
         award_points(
@@ -160,3 +171,17 @@ def change_password():
         db.session.rollback()
         print(f"Password update failed: {exc}")
         return jsonify({"message": "密码修改失败"}), 500
+
+
+@auth_bp.route("/api/v1/auth/forgot-password", methods=["POST"])
+def forgot_password():
+    return jsonify({
+        "message": "请联系管理员重置密码。"
+    }), 200
+
+
+@auth_bp.route("/api/v1/auth/reset-password", methods=["POST"])
+def reset_password():
+    return jsonify({
+        "message": "当前不支持自助重置，请联系管理员。"
+    }), 403
