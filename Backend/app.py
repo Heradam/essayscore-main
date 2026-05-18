@@ -33,6 +33,10 @@ def create_app():
     app.register_blueprint(ocr_bp)
     app.register_blueprint(teacher_bp)
 
+    @app.get("/healthz")
+    def healthz():
+        return {"status": "ok"}
+
     return app
 
 

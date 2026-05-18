@@ -1,37 +1,139 @@
 # EssayScore
 
-一套支持 OCR 输入的 AI 作文评分与润色系统，后端为 Flask，前端为 React + Vite。
+EssayScore 是一个面向作文教学场景的 AI 作文评分系统。系统支持学生提交作文、OCR 文本识别、AI 评分与润色、作文历史记录、积分消耗、班级管理、教师查看学生作文以及管理员维护用户、积分和模型配置。
 
-## 目录结构
+项目采用前后端分离架构：
 
-- `Backend/` Flask API（MVC）+ SQLAlchemy + OCR/LLM 服务
-- `Frontend/` React + Vite + Tailwind UI
-- `docker-compose.yml` MySQL + 后端 + Nginx 前端
+- 后端：Flask REST API，负责鉴权、业务接口、数据库访问、LLM 调用和 OCR 调用。
+- 前端：React + Vite 单页应用，负责学生端、教师端和管理员端页面。
+- 部署：Docker Compose 编排 MySQL、Flask/Gunicorn 和 Nginx。
 
-## 环境要求
+## 目录
 
-- Python 3.10+
-- Node.js 18+
-- MySQL 8+（或 Docker）
+- [功能模块](#功能模块)
+- [技术栈](#技术栈)
+- [项目结构](#项目结构)
+- [环境变量](#环境变量)
+- [本地运行](#本地运行)
+- [Docker 部署](#docker-部署)
+- [首次初始化](#首次初始化)
+- [权限模型](#权限模型)
+- [接口概览](#接口概览)
+- [数据模型](#数据模型)
+- [开发规范](#开发规范)
+- [常用命令](#常用命令)
+- [维护入口](#维护入口)
+
+## 功能模块
+
+| 模块 | 说明 |
+| --- | --- |
+| 学生端 | 注册登录、作文提交、AI 评分、OCR 导入、历史记录、积分查询、邀请码注册、班级加入 |
+| 教师端 | 班级创建、成员管理、入班审核、学生列表、学生作文历史和详情查看 |
+| 管理端 | 用户管理、教师管理、学生管理、积分调整、后台统计、LLM 配置管理 |
+| 系统能力 | JWT 鉴权、角色权限、账号禁用、强制改密、积分流水、模型额度配置 |
+
+## 技术栈
+
+| 层级 | 技术 |
+| --- | --- |
+| 前端 | React 18, Vite 5, React Router, Tailwind CSS, lucide-react |
+| 后端 | Flask, Flask-CORS, Flask-SQLAlchemy, Flask-JWT-Extended |
+| 数据库 | MySQL 8 |
+| AI 服务 | OpenAI-compatible API，默认适配 DashScope |
+| OCR 服务 | Baidu OCR SDK |
+| 部署 | Docker Compose, Gunicorn, Nginx |
+
+## 项目结构
+
+```text
+.
+├── Backend/
+│   ├── app.py                  # Flask 应用入口，初始化扩展并注册路由
+│   ├── config.py               # 数据库、JWT 等运行配置
+│   ├── extensions.py           # SQLAlchemy、JWT 扩展实例
+│   ├── controllers/            # API 路由层
+│   ├── models/                 # SQLAlchemy 数据模型
+│   └── services/               # 业务服务、鉴权、LLM、OCR、积分逻辑
+├── Frontend/
+│   ├── main.jsx                # React 入口、路由和权限守卫
+│   ├── index.html              # Vite HTML 入口
+│   ├── index.css               # 全局样式
+│   ├── src/
+│   │   ├── api/client.js       # API 请求封装
+│   │   ├── components/         # 通用组件
+│   │   └── pages/              # 页面组件
+│   ├── vite.config.js          # 本地开发代理配置
+│   └── nginx.conf              # 生产环境 Nginx 配置
+├── docker-compose.yml          # MySQL、Backend、Frontend 服务编排
+└── README.md
+```
+
+## 架构说明
+
+后端入口为 `Backend/app.py`。`create_app()` 会初始化 Flask、CORS、SQLAlchemy、JWT，并注册 `controllers/` 下的 Blueprint。所有业务接口统一使用 `/api/v1` 路径前缀。
+
+后端分层约定：
+
+- `controllers/`：处理 HTTP 入参、调用 service、组装 JSON 响应。
+- `services/`：承载业务逻辑和外部服务调用，例如鉴权、积分、LLM、OCR。
+- `models/`：定义数据库表结构和 ORM 模型。
+- `extensions.py`：集中维护 Flask 扩展实例，避免循环依赖。
+
+前端入口为 `Frontend/main.jsx`。应用使用 React Router 组织页面，使用 `ProtectedRoute`、`MustChangeGuard`、`RoleRoute` 处理登录态、强制改密和角色权限。接口请求统一通过 `Frontend/src/api/client.js`，自动注入 JWT，并处理 401 登录失效。
 
 ## 环境变量
 
-在仓库根目录创建 `.env`：
+在项目根目录创建 `.env` 文件。该文件包含敏感信息，不应提交到 Git。
 
-```bash
-MYSQL_ROOT_PASSWORD=your_mysql_password
-DASHSCOPE_API_KEY=your_dashscope_key
-OCR_API_KEY=your_baidu_ocr_key
-OCR_SECRET_KEY=your_baidu_ocr_secret
-JWT_SECRET_KEY=change-this-in-production
+```env
+MYSQL_ROOT_PASSWORD=change-me
+MYSQL_DATABASE=essay_scoring
+MYSQL_HOST=localhost
+MYSQL_USER=root
+
+JWT_SECRET_KEY=replace-with-a-long-random-secret
 FRONTEND_BASE_URL=http://localhost:5173
+
+DASHSCOPE_API_KEY=your_dashscope_api_key
 LLM_MODEL=qwen-max
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+
+OCR_API_KEY=your_baidu_ocr_api_key
+OCR_SECRET_KEY=your_baidu_ocr_secret_key
 ```
 
-说明：LLM 额度已改为“模型级配置”，在管理后台新增/编辑模型时设置 `quotaTokens`。
+| 变量 | 必填 | 说明 | 默认值 |
+| --- | --- | --- | --- |
+| `MYSQL_ROOT_PASSWORD` | 是 | MySQL root 密码，也是后端默认连接密码 | `123456` |
+| `MYSQL_DATABASE` | 否 | 业务数据库名 | `essay_scoring` |
+| `MYSQL_HOST` | 否 | MySQL 主机，本地为 `localhost`，Docker 为 `db` | `localhost` |
+| `MYSQL_USER` | 否 | MySQL 用户名 | `root` |
+| `JWT_SECRET_KEY` | 是 | JWT 签名密钥，生产环境必须替换 | `dev-secret-change-me` |
+| `FRONTEND_BASE_URL` | 否 | 邀请链接使用的前端地址 | 当前请求 host |
+| `DASHSCOPE_API_KEY` | 是 | 默认 LLM API Key | 无 |
+| `LLM_MODEL` | 否 | 默认模型名称 | `qwen-max` |
+| `LLM_BASE_URL` | 否 | OpenAI-compatible API 地址 | DashScope compatible endpoint |
+| `OCR_API_KEY` | 是 | 百度 OCR API Key | 无 |
+| `OCR_SECRET_KEY` | 是 | 百度 OCR Secret Key | 无 |
 
-## 后端（本地）
+生产环境必须显式配置 `JWT_SECRET_KEY`，不要使用默认密钥。
+
+## 本地运行
+
+### 1. 初始化数据库
+
+确保本地 MySQL 8 已启动，并创建业务数据库：
+
+```sql
+CREATE DATABASE IF NOT EXISTS essay_scoring
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+```
+
+项目启动时会调用 `db.create_all()` 创建缺失表。对于已有数据的环境，表结构变更应通过受控 SQL 迁移完成，不建议依赖 `create_all()` 修改既有表。
+
+### 2. 启动后端
 
 ```bash
 cd Backend
@@ -41,9 +143,13 @@ pip install -r requirements.txt
 python app.py
 ```
 
-后端运行于 `http://localhost:5000`。
+后端默认运行在：
 
-## 前端（本地）
+```text
+http://localhost:5000
+```
+
+### 3. 启动前端
 
 ```bash
 cd Frontend
@@ -51,167 +157,328 @@ npm install
 npm run dev
 ```
 
-前端运行于 `http://localhost:5173`，`/api` 会代理到后端。
+前端默认运行在：
 
-## Docker（可选）
+```text
+http://localhost:5173
+```
+
+开发环境下，Vite 会将 `/api` 请求代理到 `http://localhost:5000`。
+
+## Docker 部署
 
 ```bash
 docker-compose up --build
 ```
 
-前端暴露在 `http://localhost:80`，后端在 `http://localhost:5000`。
+默认端口：
 
-## 数据库迁移（已有 users 表）
+| 服务 | 地址 |
+| --- | --- |
+| Frontend | `http://localhost` |
+| Backend | `http://localhost:5000` |
+| MySQL | Docker 网络内部 `db:3306` |
 
-当前版本新增了用户状态与资料字段，请在 MySQL 执行：
+服务说明：
 
-```sql
-ALTER TABLE users
-ADD COLUMN is_active TINYINT(1) DEFAULT 1,
-ADD COLUMN must_change_password TINYINT(1) DEFAULT 0,
-ADD COLUMN must_change_password_expires_at DATETIME NULL,
-ADD COLUMN grade VARCHAR(20),
-ADD COLUMN subject VARCHAR(20),
-ADD COLUMN teacher_id VARCHAR(50),
-ADD COLUMN phone VARCHAR(32),
-ADD COLUMN email VARCHAR(255);
+- `db`：MySQL 8，数据持久化到 `mysql_data` volume。
+- `backend`：使用 Gunicorn 启动 Flask 应用，监听 `0.0.0.0:5000`。
+- `frontend`：使用 Nginx 托管前端静态资源，并将 `/api/v1/` 反向代理到后端。
+
+停止服务：
+
+```bash
+docker-compose down
 ```
 
-新增找回密码表：
+如需同时删除数据库 volume，请谨慎执行：
 
-```sql
-CREATE TABLE password_reset_requests (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  username VARCHAR(100) NOT NULL,
-  contact VARCHAR(255),
-  code VARCHAR(20) NOT NULL,
-  expires_at DATETIME NOT NULL,
-  used_at DATETIME NULL,
-  created_at DATETIME NOT NULL,
-  CONSTRAINT fk_password_reset_user
-    FOREIGN KEY (username) REFERENCES users(username)
-);
+```bash
+docker-compose down -v
 ```
 
-## API 一览
+## 宝塔面板部署
 
-- `POST /api/v1/register` 用户注册（必填：username/password/phone/email）
-- `POST /api/v1/login` 用户登录
-- `POST /api/v1/change-password` 修改密码
-- `POST /api/v1/auth/forgot-password` 忘记密码（申请验证码）
-- `POST /api/v1/auth/reset-password` 自助重置（验证码 + 新密码）
-- `POST /api/v1/score` 作文评分与润色
-- `GET /api/v1/history` 我的历史列表
-- `GET /api/v1/history/<username>` 历史列表（仅本人）
-- `GET /api/v1/essay/<essay_id>` 作文详情
-- `POST /api/v1/ocr` OCR（`.txt` 或图片）
-- `GET /api/v1/points/balance` 积分余额
-- `GET /api/v1/points/ledger` 积分明细
-- `GET /api/v1/invite/code` 获取邀请码与链接
-- `POST /api/v1/invite/code` 生成邀请码与链接
-- `GET /api/v1/admin/ping` 仅 admin
-- `GET /api/v1/admin/users` 用户列表（admin）
-- `PATCH /api/v1/admin/users/<username>` 更新用户（admin）
-- `POST /api/v1/admin/users/<username>/reset-password` 重置密码为 123456（admin）
-- `POST /api/v1/admin/points/adjust` 管理员积分调整（admin）
-- `GET /api/v1/admin/teachers` 教师列表（admin）
-- `GET /api/v1/admin/llm/status` LLM 用量与额度（admin）
-- `GET /api/v1/admin/llm/configs` LLM 配置列表（admin）
-- `POST /api/v1/admin/llm/configs` 新增 LLM 配置（admin）
-- `PATCH /api/v1/admin/llm/configs/<id>` 更新 LLM 配置（admin）
-- `POST /api/v1/admin/llm/configs/<id>/activate` 切换当前 LLM（admin）
-- `DELETE /api/v1/admin/llm/configs/<id>` 删除 LLM 配置（admin）
-- `GET /api/v1/teacher/ping` teacher 或 admin
-- `GET /api/v1/teacher/students` 学生列表（teacher/admin）
-- `GET /api/v1/teacher/history/<username>` 学生历史（teacher/admin）
-- `GET /api/v1/teacher/essay/<essay_id>` 学生作文详情（teacher/admin）
-- `POST /api/v1/teacher/classes` 创建班级（teacher/admin）
-- `GET /api/v1/teacher/classes` 班级列表（teacher/admin）
-- `PATCH /api/v1/teacher/classes/<class_id>` 更新班级（teacher/admin）
-- `POST /api/v1/teacher/classes/<class_id>/invite` 重置邀请码（teacher/admin）
-- `GET /api/v1/teacher/classes/<class_id>/members` 班级学生（teacher/admin）
-- `PATCH /api/v1/teacher/classes/<class_id>/members/<username>` 分组更新（teacher/admin）
-- `DELETE /api/v1/teacher/classes/<class_id>/members/<username>` 移除学生（teacher/admin）
-- `GET /api/v1/teacher/classes/<class_id>/requests` 加入申请（teacher/admin）
-- `POST /api/v1/teacher/classes/<class_id>/requests/<username>/approve` 通过申请（teacher/admin）
-- `POST /api/v1/teacher/classes/<class_id>/requests/<username>/reject` 拒绝申请（teacher/admin）
-- `POST /api/v1/classes/join` 学生通过邀请码加入班级
+推荐部署方式：宝塔负责域名、SSL 和反向代理，项目本身使用 Docker Compose 运行 MySQL、后端和前端容器。
 
-## 鉴权与权限说明
+### 1. 服务器准备
 
-- 登录后返回 `access_token`（JWT），后续请求需在请求头添加 `Authorization: Bearer <token>`
-- 前端会把 `access_token` 和用户名存入 `localStorage`，并自动在请求中附带 Authorization
-- 接口返回 401 会清理本地登录态并跳转到登录页，同时提示 token 过期
-- 被禁用账号无法登录或访问接口
-- 管理员重置密码后会强制用户修改密码
-- `history/<username>` 只能查询本人历史，`history` 默认查询本人历史
-- 邀请链接使用 `FRONTEND_BASE_URL` 拼接 `/invite/signup/<code>`
-- `essay/<essay_id>` 仅允许查看本人作文
-- `score` 评分写入时使用 JWT 身份作为用户名，忽略前端传入
+在宝塔面板中安装：
 
-## 积分规则（默认）
+- Nginx
+- Docker 管理器，或在服务器命令行安装 Docker 与 Docker Compose
 
-- 新用户注册：+50
-- 作文评分：每次 -5（余额不足将阻止评分）
-- 邀请新用户注册：邀请人 +30
+服务器安全组和宝塔防火墙至少放行：
 
-## 功能清单
+- `80`：HTTP
+- `443`：HTTPS
 
-### 学生端（前端）
-- 登录：账号密码登录，成功后保存 `authToken` 与 `authUser`
-- 注册：用户注册，密码一致性校验，成功后自动跳转登录
-- 班级加入：独立页面通过邀请码申请加入班级
-- 邀请好友：独立页面生成邀请码与邀请链接
-- 积分中心：独立页面查看余额与积分明细
-- 作文提交：题目描述、标题、正文输入并提交评分
-- 历史记录：独立页面查看作文详情
-- OCR 导入：题目/标题/正文支持 `.txt` 和图片上传识别
-- 评分结果展示：分数、结构化反馈、润色后的全文
-- 历史记录：侧边栏加载历史列表并查看详情
-- 交互体验：加载状态、错误提示、通知弹窗、移动端侧边栏
+不建议向公网放行 `5000`、`3306`、`8080`。当前 `docker-compose.yml` 默认只把前端映射到服务器本机 `127.0.0.1:8080`，由宝塔 Nginx 反向代理访问。
 
-### 教师端（前端）
-- 教师入口：仅 teacher/admin 可访问，登录后自动跳转教师工作台
-- 班级管理：创建班级、年级/科目、邀请码/邀请链接、审核开关
-- 成员管理：学生名单查看、移除、分组
-- 加入审核：学生申请审批/拒绝
-- 学生历史：按学生查看历史记录
-- 作文详情：查看学生作文详情与评分结果
-- 教师导航：班级 / 管理 / 历史独立页面切换
+### 2. 上传代码
 
-### 管理后台（前端）
-- 导航：仪表盘 / 学生管理 / 教师管理 / 积分管理独立页面切换
-- 仪表盘：用户概况 / 近 7 天活跃 / 积分概况
-- 学生管理：禁用/重置密码/积分调整
-- 教师管理：年级/学科/工号、禁用/重置密码
-- 重置密码与强制修改
-- 积分调整：管理员对用户加减分（需备注）
-- 教师资料字段（年级/学科/工号）
-- 学科仅支持 语文/英语，年级支持 1-12
+将项目上传到服务器，例如：
 
-#### 管理员重置密码操作
-1. 进入“管理后台”页面，找到目标用户。
-2. 点击“重置密码”，系统将该用户密码重置为 `123456`。
-3. 用户下次登录会被强制跳转到“修改密码”页面。
+```bash
+cd /www/wwwroot
+git clone https://github.com/Heradam/essayscore-main.git essayscore
+cd essayscore
+```
 
-#### 邀请链接使用示例
-1. 学生端点击“生成邀请链接”（示例：`http://localhost:5173/invite/signup/abcd1234`）。
-2. 新用户打开链接，系统跳转注册页并自动带入邀请码。
-3. 注册成功后，邀请人获得 +30 积分。
+如果服务器不能直接拉取 GitHub，也可以在宝塔文件管理中上传压缩包并解压到 `/www/wwwroot/essayscore`。
 
-### 后端（API + 服务）
-- 用户注册/登录：JWT 鉴权，identity 为 `username`
-- 作文评分：调用通义千问评分与润色，写入 MySQL
-- 历史/详情查询：仅允许访问本人数据（归属校验）
-- OCR：文本文件与手写图片识别
-- 最小 RBAC：admin/teacher 角色测试接口
-- 教师接口：学生列表、学生历史、学生作文详情（RBAC 限制）
-- 班级管理：班级创建、邀请码、成员管理、加入审核（RBAC 限制）
-- 用户与角色管理：角色切换、禁用、重置密码、强制改密（RBAC 限制）
-- 积分系统：注册奖励、批改扣分、邀请奖励（幂等账本）
+### 3. 创建生产环境变量
 
-### 系统与部署
-- 架构：Flask MVC + services + SQLAlchemy
-- 数据库：MySQL（`users`/`essays`/`classes`/`class_members`/`class_join_requests`/`points_account`/`points_ledger`/`invite_code`/`invite_bind`）
-- 部署：Docker Compose（MySQL + 后端 + Nginx 前端）
+```bash
+cp .env.example .env
+```
 
+编辑 `.env`，至少修改以下值：
+
+```env
+MYSQL_ROOT_PASSWORD=strong_mysql_password
+JWT_SECRET_KEY=long_random_secret
+FRONTEND_BASE_URL=https://your-domain.com
+DASHSCOPE_API_KEY=your_dashscope_api_key
+OCR_API_KEY=your_baidu_ocr_api_key
+OCR_SECRET_KEY=your_baidu_ocr_secret_key
+```
+
+### 4. 启动服务
+
+```bash
+docker-compose up -d --build
+```
+
+查看状态：
+
+```bash
+docker-compose ps
+docker-compose logs -f backend
+```
+
+本机验证：
+
+```bash
+curl http://127.0.0.1:8080/healthz
+```
+
+返回 `{"status":"ok"}` 表示前端 Nginx 已成功代理到后端。
+
+### 5. 配置宝塔反向代理
+
+在宝塔面板中：
+
+1. 网站 -> 添加站点，域名填写你的域名。
+2. SSL -> 申请并开启 HTTPS。
+3. 反向代理 -> 添加反向代理。
+4. 目标 URL 填写：
+
+```text
+http://127.0.0.1:8080
+```
+
+如果宝塔生成的站点配置需要手动调整，可使用以下 Nginx 片段：
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_connect_timeout 30s;
+    proxy_send_timeout 300s;
+    proxy_read_timeout 300s;
+}
+```
+
+### 6. 上线检查
+
+```bash
+curl -I https://your-domain.com
+curl https://your-domain.com/healthz
+docker-compose logs --tail=100 backend
+docker-compose logs --tail=100 frontend
+```
+
+浏览器访问 `https://your-domain.com`，注册第一个账号后，按“首次初始化”章节将该账号设置为管理员。
+
+## 首次初始化
+
+1. 启动数据库、后端和前端。
+2. 在前端注册第一个用户。
+3. 在数据库中将该用户设置为管理员：
+
+```sql
+UPDATE users SET role = 'admin' WHERE username = 'your_username';
+```
+
+4. 使用管理员账号登录 `/admin`。
+5. 在 LLM 管理页面配置模型、API Key、Base URL 和额度。
+
+## 权限模型
+
+| 角色 | 权限范围 |
+| --- | --- |
+| `user` | 学生端功能：作文评分、历史记录、积分、班级、邀请 |
+| `teacher` | 教师端功能：班级管理、学生列表、学生作文查看 |
+| `admin` | 管理端功能：用户、教师、学生、积分、LLM 配置和后台统计 |
+
+鉴权规则：
+
+- 登录成功后，后端返回 JWT，前端保存到 `localStorage.authToken`。
+- 前端请求由 `apiRequest()` 自动附加 `Authorization: Bearer <token>`。
+- 后端通过 `role_required()` 控制角色权限。
+- 后端通过 `active_required()` 拦截禁用账号。
+- 管理员重置密码后，用户下次登录会被强制修改密码。
+
+## 接口概览
+
+完整接口定义位于 `Backend/controllers/`。以下为主要接口分组。
+
+### 认证
+
+| Method | Path | 说明 |
+| --- | --- | --- |
+| `POST` | `/api/v1/register` | 用户注册 |
+| `POST` | `/api/v1/login` | 用户登录 |
+| `POST` | `/api/v1/change-password` | 修改密码 |
+| `POST` | `/api/v1/auth/forgot-password` | 申请找回密码验证码 |
+| `POST` | `/api/v1/auth/reset-password` | 重置密码 |
+
+### 作文与 OCR
+
+| Method | Path | 说明 |
+| --- | --- | --- |
+| `POST` | `/api/v1/score` | 作文评分与润色 |
+| `GET` | `/api/v1/history` | 当前用户作文历史 |
+| `GET` | `/api/v1/essay/<essay_id>` | 作文详情 |
+| `PATCH` | `/api/v1/essay/<essay_id>/evaluation` | 更新作文评估结果 |
+| `POST` | `/api/v1/ocr` | OCR 识别 |
+
+### 班级、邀请与积分
+
+| Method | Path | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/v1/invite/code` | 获取邀请码 |
+| `POST` | `/api/v1/invite/code` | 生成邀请码 |
+| `POST` | `/api/v1/classes/join` | 加入班级 |
+| `GET` | `/api/v1/classes/mine` | 我的班级 |
+| `GET` | `/api/v1/points/balance` | 积分余额 |
+| `GET` | `/api/v1/points/ledger` | 积分流水 |
+
+### 教师
+
+| Method | Path | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/v1/teacher/students` | 学生列表 |
+| `GET` | `/api/v1/teacher/history/<username>` | 学生作文历史 |
+| `GET` | `/api/v1/teacher/essay/<essay_id>` | 学生作文详情 |
+| `POST` | `/api/v1/teacher/classes` | 创建班级 |
+| `GET` | `/api/v1/teacher/classes` | 班级列表 |
+| `PATCH` | `/api/v1/teacher/classes/<class_id>` | 更新班级 |
+| `GET` | `/api/v1/teacher/classes/<class_id>/members` | 班级成员 |
+| `GET` | `/api/v1/teacher/classes/<class_id>/requests` | 入班申请 |
+
+### 管理员
+
+| Method | Path | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/v1/admin/dashboard` | 后台统计 |
+| `GET` | `/api/v1/admin/users` | 用户列表 |
+| `PATCH` | `/api/v1/admin/users/<username>` | 更新用户 |
+| `POST` | `/api/v1/admin/users/<username>/reset-password` | 重置密码 |
+| `GET` | `/api/v1/admin/points/accounts` | 积分账户列表 |
+| `POST` | `/api/v1/admin/points/adjust` | 调整积分 |
+| `GET` | `/api/v1/admin/llm/configs` | LLM 配置列表 |
+| `POST` | `/api/v1/admin/llm/configs` | 新增 LLM 配置 |
+| `PATCH` | `/api/v1/admin/llm/configs/<config_id>` | 更新 LLM 配置 |
+| `POST` | `/api/v1/admin/llm/configs/<config_id>/activate` | 激活 LLM 配置 |
+| `DELETE` | `/api/v1/admin/llm/configs/<config_id>` | 删除 LLM 配置 |
+
+## 数据模型
+
+主要数据表：
+
+| 表名 | 说明 |
+| --- | --- |
+| `users` | 用户账号、角色、状态、教师资料和联系方式 |
+| `essays` | 作文内容、评分结果和润色结果 |
+| `classes` | 班级信息、教师归属和邀请码 |
+| `class_members` | 班级成员关系 |
+| `class_join_requests` | 学生入班申请 |
+| `points_account` | 用户积分账户 |
+| `points_ledger` | 积分流水 |
+| `invite_code` | 邀请码 |
+| `invite_bind` | 邀请绑定关系 |
+| `llm_configs` | LLM 模型配置 |
+| `llm_usage_logs` | LLM 使用记录 |
+| `password_reset_requests` | 找回密码验证码记录 |
+
+## 积分规则
+
+| 场景 | 积分变化 |
+| --- | --- |
+| 新用户注册 | `+50` |
+| 作文评分 | `-5` |
+| 邀请新用户注册 | 邀请人 `+30` |
+| 管理员调整 | 按后台输入增减 |
+
+积分流水使用 `idempotency_key` 做幂等控制，核心逻辑位于 `Backend/services/points_service.py`。
+
+## 开发规范
+
+- 不提交 `.env`、本地数据库、IDE 配置、缓存文件和构建产物。
+- 后端 Controller 只处理 HTTP 层逻辑，业务规则放到 Service。
+- 新增受保护接口时必须明确使用鉴权装饰器。
+- 新增数据模型时应同步准备数据库迁移 SQL。
+- 前端请求统一使用 `apiRequest()`，避免页面内重复处理 token 和 401。
+- 新增页面时同步更新 `Frontend/main.jsx` 路由和权限守卫。
+- API 错误响应优先使用 `error` 或 `message` 字段，便于前端统一展示。
+
+## 常用命令
+
+```bash
+# 前端开发
+cd Frontend
+npm run dev
+npm run build
+npm run lint
+
+# 后端开发
+cd Backend
+python app.py
+
+# Docker
+docker-compose up --build
+docker-compose down
+```
+
+## 质量检查
+
+前端已提供 lint 脚本：
+
+```bash
+cd Frontend
+npm run lint
+```
+
+后端当前未提供自动化测试脚本。后续建议补充 pytest，并覆盖认证、权限、作文评分、积分扣减、班级成员关系和管理员操作等核心流程。
+
+## 维护入口
+
+| 任务 | 主要文件 |
+| --- | --- |
+| 新增接口 | `Backend/controllers/`, `Backend/services/` |
+| 新增表结构 | `Backend/models/` |
+| 修改鉴权 | `Backend/services/auth_service.py`, `Frontend/main.jsx` |
+| 修改 LLM 调用 | `Backend/services/llm_service.py`, `Backend/services/llm_config_service.py` |
+| 修改 OCR 调用 | `Backend/services/ocr_service.py` |
+| 修改前端请求 | `Frontend/src/api/client.js` |
+| 新增页面 | `Frontend/src/pages/`, `Frontend/main.jsx` |
+| 修改部署 | `docker-compose.yml`, `Backend/Dockerfile.backend`, `Frontend/Dockerfile.frontend`, `Frontend/nginx.conf` |
+
+## License
+
+当前项目未声明开源许可证。公开分发或商用前，请补充 `LICENSE` 文件。
