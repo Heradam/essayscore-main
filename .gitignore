@@ -16,12 +16,6 @@ env/
 # IDE files
 .idea/
 .vscode/
-*.iml
-
-# Local databases
-*.db
-*.sqlite
-*.sqlite3
 
 # Frontend dependencies and build output
 node_modules/
