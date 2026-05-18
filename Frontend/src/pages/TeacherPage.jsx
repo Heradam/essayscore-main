@@ -52,14 +52,14 @@ const TeacherPage = ({ onLogout, role, view = 'all' }) => {
         { value: '英语', label: '英语' },
     ];
     const viewMode = view || 'all';
-    const showClasses = viewMode === 'classes' || viewMode === 'manage' || viewMode === 'history' || viewMode === 'all';
+    const showClasses = viewMode === 'classes' || viewMode === 'manage' || viewMode === 'all';
     const showManage = viewMode === 'manage' || viewMode === 'all';
     const showHistory = viewMode === 'history' || viewMode === 'all';
     const gridClassName = viewMode === 'all'
         ? 'grid-cols-1 lg:grid-cols-3'
-        : (viewMode === 'manage' || viewMode === 'history')
+        : (viewMode === 'manage')
             ? 'grid-cols-1 lg:grid-cols-2'
-            : 'grid-cols-1';
+        : 'grid-cols-1';
 
     const [newClass, setNewClass] = useState({
         name: '',
@@ -377,6 +377,10 @@ const TeacherPage = ({ onLogout, role, view = 'all' }) => {
         }
     };
 
+    const handleHistoryClassChange = (classId) => {
+        updateSelectedClass(classId || null);
+    };
+
     return (
         <div className="min-h-screen bg-gray-100">
             <TeacherHeader role={role} onLogout={onLogout} />
@@ -664,7 +668,7 @@ const TeacherPage = ({ onLogout, role, view = 'all' }) => {
                 )}
 
                 {showHistory && (
-                <section className="surface-float rounded-3xl p-5 md:p-7 fade-in-up delay-2">
+                <section className="surface-float rounded-3xl p-5 md:p-7 fade-in-up delay-2 flex flex-col overflow-hidden min-h-[28rem]">
                     <div className="flex items-center justify-between mb-4">
                         <div>
                             <h2 className="text-lg font-bold text-gray-800">
@@ -683,6 +687,33 @@ const TeacherPage = ({ onLogout, role, view = 'all' }) => {
                     )}
                     {viewMode === 'history' && (
                         <div className="mb-4">
+                            <div className="mb-4 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
+                                <div>
+                                    <p className="text-xs text-slate-500 mb-1">当前班级</p>
+                                    <select
+                                        value={selectedClassId || ''}
+                                        onChange={(e) => handleHistoryClassChange(e.target.value)}
+                                        className="w-full p-2 border border-slate-200 rounded-xl bg-white"
+                                    >
+                                        {classes.length === 0 ? (
+                                            <option value="">暂无班级</option>
+                                        ) : (
+                                            classes.map((item) => (
+                                                <option key={item.id} value={item.id}>
+                                                    {item.name}
+                                                </option>
+                                            ))
+                                        )}
+                                    </select>
+                                </div>
+                                <button
+                                    onClick={() => loadClasses(true)}
+                                    className="inline-flex items-center justify-center px-3 py-2 rounded-xl border border-slate-200 text-slate-600 hover:text-slate-900"
+                                >
+                                    <RefreshCcw className="w-4 h-4 mr-1" />
+                                    刷新班级
+                                </button>
+                            </div>
                             <h3 className="text-md font-semibold text-gray-800 mb-2">学生列表</h3>
                             {members.length === 0 ? (
                                 <p className="text-sm text-gray-500">暂无学生。</p>
@@ -712,7 +743,7 @@ const TeacherPage = ({ onLogout, role, view = 'all' }) => {
                     {!selectedStudent ? (
                         <p className="text-sm text-gray-500">请选择学生查看历史。</p>
                     ) : (
-                        <div className="space-y-4">
+                        <div className="space-y-4 flex-1 min-h-0 overflow-y-auto pr-1">
                             {history.length === 0 ? (
                                 <p className="text-sm text-gray-500">暂无历史记录。</p>
                             ) : (
@@ -722,14 +753,16 @@ const TeacherPage = ({ onLogout, role, view = 'all' }) => {
                                             <button
                                                 key={item.id}
                                                 onClick={() => loadEssay(item.id)}
-                                                className="text-left p-4 rounded-2xl border border-slate-200 hover:border-emerald-200 hover:shadow-md transition bg-white/80 relative overflow-hidden"
+                                                className="text-left p-4 rounded-2xl border border-slate-200 hover:border-emerald-200 hover:shadow-md transition bg-white/80"
                                             >
-                                                <div className="absolute top-3 right-3 text-[10px] px-2 py-1 rounded-full bg-white/80 border border-slate-200 text-slate-500">
-                                                    {new Date(item.timestamp).toLocaleDateString('zh-CN')}
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <p className="font-semibold text-gray-800 line-clamp-2 pr-2">
+                                                        {item.title || '无标题作文'}
+                                                    </p>
+                                                    <span className="shrink-0 text-[10px] px-2 py-1 rounded-full bg-white/80 border border-slate-200 text-slate-500">
+                                                        {new Date(item.timestamp).toLocaleDateString('zh-CN')}
+                                                    </span>
                                                 </div>
-                                                <p className="font-semibold text-gray-800 line-clamp-2">
-                                                    {item.title || '无标题作文'}
-                                                </p>
                                                 <p className="text-xs text-slate-400 mt-2">点击查看评分与润色</p>
                                             </button>
                                         ))}

@@ -25,10 +25,11 @@ OCR_API_KEY=your_baidu_ocr_key
 OCR_SECRET_KEY=your_baidu_ocr_secret
 JWT_SECRET_KEY=change-this-in-production
 FRONTEND_BASE_URL=http://localhost:5173
-LLM_TOKEN_QUOTA=1000000
 LLM_MODEL=qwen-max
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 ```
+
+说明：LLM 额度已改为“模型级配置”，在管理后台新增/编辑模型时设置 `quotaTokens`。
 
 ## 后端（本地）
 
@@ -97,8 +98,8 @@ CREATE TABLE password_reset_requests (
 - `POST /api/v1/register` 用户注册（必填：username/password/phone/email）
 - `POST /api/v1/login` 用户登录
 - `POST /api/v1/change-password` 修改密码
-- `POST /api/v1/auth/forgot-password` 忘记密码（提示联系管理员）
-- `POST /api/v1/auth/reset-password` 自助重置（已禁用）
+- `POST /api/v1/auth/forgot-password` 忘记密码（申请验证码）
+- `POST /api/v1/auth/reset-password` 自助重置（验证码 + 新密码）
 - `POST /api/v1/score` 作文评分与润色
 - `GET /api/v1/history` 我的历史列表
 - `GET /api/v1/history/<username>` 历史列表（仅本人）

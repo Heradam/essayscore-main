@@ -22,9 +22,12 @@ def list_students():
 @role_required("teacher", "admin")
 def get_student_history(username):
     try:
+        student = User.query.filter_by(username=username).first()
+        if not student:
+            return jsonify({"error": "学生不存在"}), 404
         essays = (
             Essay.query
-            .filter_by(username=username)
+            .filter_by(user_id=student.id)
             .order_by(Essay.timestamp.desc())
             .all()
         )
@@ -59,6 +62,6 @@ def get_student_essay(essay_id):
         "feedback": essay.feedback or [],
         "revisedContent": essay.revised_content,
         "timestamp": essay.timestamp,
-        "username": essay.username,
+        "username": essay.user.username if essay.user else None,
     }
     return jsonify(response_essay)

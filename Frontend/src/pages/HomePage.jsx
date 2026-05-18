@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { X, Send, MessageSquare, Target, Hash, FileText, Loader2, BookOpen, Upload, Edit3 } from 'lucide-react';
 import { apiRequest } from '../api/client.js';
 import StudentHeader from './StudentHeader.jsx';
+import EssayEvaluationPanel from '../components/EssayEvaluationPanel.jsx';
 
 
 // 历史记录数据
@@ -14,7 +15,7 @@ const initialHistory = [
 // 作文数据
 const getMockEssay = (id) => ({
     id: id,
-    topic: "描述你最喜欢的一件艺术品及其对你的意义，要求结构完整，主题明确。",
+    topic: "",
     title: id === 'new' ? '新作文' : (id === '1' ? initialHistory[0].title : initialHistory[1].title),
     originalContent: "无作文内容",
     score: 0, // 评分 (满分 60)
@@ -25,8 +26,12 @@ const getMockEssay = (id) => ({
     ],
     revisedContent: "无",
     timestamp: 0,
+    userRating: null,
+    userReview: '',
+    userReviewedAt: null,
 });
 
+const ENABLE_API_FALLBACK = import.meta.env.VITE_ENABLE_API_FALLBACK === 'true';
 
 const callApi = async (endpoint, method = 'GET', data = null) => {
     // 使用 Vite 代理，直接使用相对路径（会自动代理到 http://localhost:5000）
@@ -40,7 +45,10 @@ const callApi = async (endpoint, method = 'GET', data = null) => {
         return result;
     } catch (error) {
         console.error(`[API ERROR] Error calling ${method} ${url}:`, error);
-        
+        if (!ENABLE_API_FALLBACK) {
+            throw error;
+        }
+
         // 如果后端不可用，使用模拟数据作为后备
         if (endpoint.startsWith('/api/v1/history') && method === 'GET') {
             console.warn('[FALLBACK] Using mock history data');
@@ -99,7 +107,7 @@ const FeedbackCard = ({ type, detail, icon: Icon, color }) => (
 
 // --- RESULT PAGE COMPONENT---
 
-const ResultPage = ({ essay, onBack, isSaving }) => {
+const ResultPage = ({ essay, onBack, isSaving, onEvaluationSaved, setNotification }) => {
     const feedbackConfig = {
         '优点': { icon: Target, color: { border: 'border-green-500', text: 'text-green-700' } },
         '不足': { icon: X, color: { border: 'border-red-500', text: 'text-red-700' } },
@@ -182,6 +190,15 @@ const ResultPage = ({ essay, onBack, isSaving }) => {
                         {essay.revisedContent}
                     </div>
                 </div>
+
+                <EssayEvaluationPanel
+                    essayId={essay.id}
+                    initialRating={essay.userRating}
+                    initialReview={essay.userReview}
+                    initialReviewedAt={essay.userReviewedAt}
+                    onSaved={onEvaluationSaved}
+                    setNotification={setNotification}
+                />
             </div>
         </div>
     );
@@ -190,7 +207,7 @@ const ResultPage = ({ essay, onBack, isSaving }) => {
 // --- HOME PAGE COMPONENT  ---
 
 const HomeView = ({ username, isLoading, onSubmit, setNotification}) => {
-    const [topic, setTopic] = useState('描述你最喜欢的一件艺术品及其对你的意义，要求结构完整，主题明确。');
+    const [topic, setTopic] = useState('');
     const [title, setTitle] = useState('');
     const [content, setContent] = useState('');
     const [error, setError] = useState(null);
@@ -381,7 +398,7 @@ const HomeView = ({ username, isLoading, onSubmit, setNotification}) => {
                             value={topic}
                             onChange={(e) => setTopic(e.target.value)}
                             rows="3"
-                            placeholder="请输入作文的题目要求、字数限制等描述..."
+                            placeholder="请输入题目描述 / 写作要求"
                             className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-300 focus:border-emerald-300 transition resize-none"
                             required
                         />
@@ -567,7 +584,7 @@ const HomePage = ({ username, role, onLogout }) => {
     // 根据当前视图渲染主体内容
     const renderContent = useMemo(() => {
         if (!currentEssay) {
-            return (
+        return (
                 <HomeView 
                     username={username} 
                     onSubmit={handleSubmitScoring}
@@ -575,7 +592,19 @@ const HomePage = ({ username, role, onLogout }) => {
                     setIsLoading={setIsLoading}
                     setNotification={setNotification} />);
         }
-        return <ResultPage essay={currentEssay} onBack={() => setCurrentEssay(null)} isSaving={isLoading} />;
+        return (
+            <ResultPage
+                essay={currentEssay}
+                onBack={() => setCurrentEssay(null)}
+                isSaving={isLoading}
+                setNotification={setNotification}
+                onEvaluationSaved={(evaluation) => {
+                    setCurrentEssay((prev) => (
+                        prev ? { ...prev, ...evaluation } : prev
+                    ));
+                }}
+            />
+        );
     }, [currentEssay, handleSubmitScoring, isLoading, username]);
 
     return (

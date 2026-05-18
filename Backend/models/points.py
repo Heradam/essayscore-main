@@ -6,7 +6,7 @@ from extensions import db
 class PointsAccount(db.Model):
     __tablename__ = "points_account"
 
-    user_username = db.Column(db.String(100), db.ForeignKey("users.username"), unique=True, nullable=False)
+    user_id = db.Column(db.BigInteger, db.ForeignKey("users.id"), unique=True, nullable=False)
     balance = db.Column(db.Integer, default=0, nullable=False)
     lifetime_earned = db.Column(db.Integer, default=0, nullable=False)
     lifetime_spent = db.Column(db.Integer, default=0, nullable=False)
@@ -19,7 +19,7 @@ class PointsLedger(db.Model):
     __tablename__ = "points_ledger"
 
     id = db.Column(db.Integer, primary_key=True)
-    user_username = db.Column(db.String(100), db.ForeignKey("users.username"), nullable=False)
+    user_id = db.Column(db.BigInteger, db.ForeignKey("users.id"), nullable=False)
     delta = db.Column(db.Integer, nullable=False)
     reason_code = db.Column(db.String(100), nullable=False)
     ref_type = db.Column(db.String(50))

@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 import random
 
 from extensions import db
-from models import PasswordResetRequest
+from models import PasswordResetRequest, User
 
 
 def generate_reset_code():
@@ -10,13 +10,16 @@ def generate_reset_code():
 
 
 def create_reset_request(username, contact=None, expires_minutes=10):
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        raise ValueError("user_not_found")
     now = datetime.utcnow()
-    PasswordResetRequest.query.filter_by(username=username, used_at=None).update(
+    PasswordResetRequest.query.filter_by(user_id=user.id, used_at=None).update(
         {PasswordResetRequest.used_at: now}
     )
     code = generate_reset_code()
     reset = PasswordResetRequest(
-        username=username,
+        user_id=user.id,
         contact=contact or None,
         code=code,
         expires_at=now + timedelta(minutes=expires_minutes),
@@ -27,10 +30,13 @@ def create_reset_request(username, contact=None, expires_minutes=10):
 
 
 def consume_reset_code(username, code):
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return None, "invalid"
     now = datetime.utcnow()
     reset = (
         PasswordResetRequest.query
-        .filter_by(username=username, code=code, used_at=None)
+        .filter_by(user_id=user.id, code=code, used_at=None)
         .order_by(PasswordResetRequest.created_at.desc())
         .first()
     )

@@ -28,7 +28,10 @@ def _generate_unique_invite_code():
 
 
 def _get_teacher_class_or_404(class_id, teacher_username):
-    classroom = ClassRoom.query.filter_by(id=class_id, teacher_username=teacher_username).first()
+    teacher = User.query.filter_by(username=teacher_username).first()
+    if not teacher:
+        return None
+    classroom = ClassRoom.query.filter_by(id=class_id, teacher_user_id=teacher.id).first()
     return classroom
 
 
@@ -44,6 +47,9 @@ def create_class():
         return jsonify({"error": "班级名不能为空"}), 400
 
     teacher_username = get_jwt_identity()
+    teacher = User.query.filter_by(username=teacher_username).first()
+    if not teacher:
+        return jsonify({"error": "用户不存在"}), 401
     invite_code = _generate_unique_invite_code()
 
     classroom = ClassRoom(
@@ -51,7 +57,7 @@ def create_class():
         name=name,
         grade=grade,
         subject=subject,
-        teacher_username=teacher_username,
+        teacher_user_id=teacher.id,
         invite_code=invite_code,
         require_approval=bool(require_approval),
     )
@@ -78,10 +84,13 @@ def create_class():
 @role_required("teacher", "admin")
 def list_classes():
     teacher_username = get_jwt_identity()
+    teacher = User.query.filter_by(username=teacher_username).first()
+    if not teacher:
+        return jsonify({"error": "用户不存在"}), 401
     try:
         classes = (
             ClassRoom.query
-            .filter_by(teacher_username=teacher_username)
+            .filter_by(teacher_user_id=teacher.id)
             .order_by(ClassRoom.created_at.desc())
             .all()
         )
@@ -160,10 +169,15 @@ def list_members(class_id):
         return jsonify({"error": "班级未找到"}), 404
 
     try:
-        members = ClassMember.query.filter_by(class_id=class_id).all()
+        members = (
+            db.session.query(ClassMember, User.username)
+            .join(User, User.id == ClassMember.student_user_id)
+            .filter(ClassMember.class_id == class_id)
+            .all()
+        )
         return jsonify([
-            {"username": member.student_username, "group": member.group_name}
-            for member in members
+            {"username": username, "group": member.group_name}
+            for member, username in members
         ])
     except Exception as exc:
         print(f"Database query failed: {exc}")
@@ -181,7 +195,10 @@ def update_member_group(class_id, username):
     data = request.get_json() or {}
     group_name = data.get("group")
     try:
-        member = ClassMember.query.filter_by(class_id=class_id, student_username=username).first()
+        student = User.query.filter_by(username=username).first()
+        if not student:
+            return jsonify({"error": "学生不存在"}), 404
+        member = ClassMember.query.filter_by(class_id=class_id, student_user_id=student.id).first()
         if not member:
             return jsonify({"error": "学生不在班级中"}), 404
         member.group_name = group_name
@@ -202,7 +219,10 @@ def remove_member(class_id, username):
         return jsonify({"error": "班级未找到"}), 404
 
     try:
-        member = ClassMember.query.filter_by(class_id=class_id, student_username=username).first()
+        student = User.query.filter_by(username=username).first()
+        if not student:
+            return jsonify({"error": "学生不存在"}), 404
+        member = ClassMember.query.filter_by(class_id=class_id, student_user_id=student.id).first()
         if not member:
             return jsonify({"error": "学生不在班级中"}), 404
         db.session.delete(member)
@@ -224,12 +244,13 @@ def list_join_requests(class_id):
 
     try:
         requests_ = (
-            ClassJoinRequest.query
-            .filter_by(class_id=class_id, status="pending")
+            db.session.query(ClassJoinRequest, User.username)
+            .join(User, User.id == ClassJoinRequest.student_user_id)
+            .filter(ClassJoinRequest.class_id == class_id, ClassJoinRequest.status == "pending")
             .order_by(ClassJoinRequest.created_at.desc())
             .all()
         )
-        return jsonify([{"username": item.student_username, "id": item.id} for item in requests_])
+        return jsonify([{"username": username, "id": item.id} for item, username in requests_])
     except Exception as exc:
         print(f"Database query failed: {exc}")
         return jsonify({"error": "申请列表查询失败"}), 500
@@ -244,12 +265,15 @@ def approve_request(class_id, username):
         return jsonify({"error": "班级未找到"}), 404
 
     try:
-        req = ClassJoinRequest.query.filter_by(class_id=class_id, student_username=username, status="pending").first()
+        student = User.query.filter_by(username=username).first()
+        if not student:
+            return jsonify({"error": "学生不存在"}), 404
+        req = ClassJoinRequest.query.filter_by(class_id=class_id, student_user_id=student.id, status="pending").first()
         if not req:
             return jsonify({"error": "申请不存在"}), 404
-        member = ClassMember.query.filter_by(class_id=class_id, student_username=username).first()
+        member = ClassMember.query.filter_by(class_id=class_id, student_user_id=student.id).first()
         if not member:
-            member = ClassMember(class_id=class_id, student_username=username)
+            member = ClassMember(class_id=class_id, student_user_id=student.id)
             db.session.add(member)
         req.status = "approved"
         db.session.commit()
@@ -269,7 +293,10 @@ def reject_request(class_id, username):
         return jsonify({"error": "班级未找到"}), 404
 
     try:
-        req = ClassJoinRequest.query.filter_by(class_id=class_id, student_username=username, status="pending").first()
+        student = User.query.filter_by(username=username).first()
+        if not student:
+            return jsonify({"error": "学生不存在"}), 404
+        req = ClassJoinRequest.query.filter_by(class_id=class_id, student_user_id=student.id, status="pending").first()
         if not req:
             return jsonify({"error": "申请不存在"}), 404
         req.status = "rejected"
@@ -299,14 +326,17 @@ def join_class():
         return jsonify({"error": "邀请码无效"}), 404
 
     username = get_jwt_identity()
-    existing = ClassMember.query.filter_by(class_id=classroom.id, student_username=username).first()
+    student = User.query.filter_by(username=username).first()
+    if not student:
+        return jsonify({"error": "用户不存在"}), 401
+    existing = ClassMember.query.filter_by(class_id=classroom.id, student_user_id=student.id).first()
     if existing:
         return jsonify({"message": "已加入该班级"}), 200
 
     if classroom.require_approval:
         pending = ClassJoinRequest.query.filter_by(
             class_id=classroom.id,
-            student_username=username,
+            student_user_id=student.id,
             status="pending"
         ).first()
         if pending:
@@ -314,7 +344,7 @@ def join_class():
         req = ClassJoinRequest(
             id=str(uuid4()),
             class_id=classroom.id,
-            student_username=username
+            student_user_id=student.id,
         )
         try:
             db.session.add(req)
@@ -325,7 +355,7 @@ def join_class():
             print(f"Database save failed: {exc}")
             return jsonify({"error": "申请提交失败"}), 500
 
-    member = ClassMember(class_id=classroom.id, student_username=username)
+    member = ClassMember(class_id=classroom.id, student_user_id=student.id)
     try:
         db.session.add(member)
         db.session.commit()
@@ -345,12 +375,15 @@ def list_my_classes():
         return jsonify({"error": "只有学生可以查看班级"}), 403
 
     username = get_jwt_identity()
+    student = User.query.filter_by(username=username).first()
+    if not student:
+        return jsonify({"error": "用户不存在"}), 401
     try:
         classes = (
             db.session.query(ClassRoom, User.username)
             .join(ClassMember, ClassMember.class_id == ClassRoom.id)
-            .join(User, User.username == ClassRoom.teacher_username)
-            .filter(ClassMember.student_username == username)
+            .join(User, User.id == ClassRoom.teacher_user_id)
+            .filter(ClassMember.student_user_id == student.id)
             .order_by(ClassRoom.created_at.desc())
             .all()
         )
@@ -378,8 +411,11 @@ def leave_class(class_id):
         return jsonify({"error": "只有学生可以退出班级"}), 403
 
     username = get_jwt_identity()
+    student = User.query.filter_by(username=username).first()
+    if not student:
+        return jsonify({"error": "用户不存在"}), 401
     try:
-        member = ClassMember.query.filter_by(class_id=class_id, student_username=username).first()
+        member = ClassMember.query.filter_by(class_id=class_id, student_user_id=student.id).first()
         if not member:
             return jsonify({"error": "你不在该班级"}), 404
         db.session.delete(member)

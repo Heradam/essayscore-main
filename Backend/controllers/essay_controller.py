@@ -1,15 +1,17 @@
 import json
 import time
+from datetime import datetime
 from uuid import uuid4
 
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt_identity
 
 from extensions import db
-from models import Essay, PointsAccount
+from models import Essay, PointsAccount, User
 from services.auth_service import active_required
 from services.llm_service import ai_score_and_refine, get_active_model_name
-from services.llm_usage_service import record_llm_usage
+from services.llm_usage_service import get_month_usage, record_llm_usage
+from services.llm_config_service import get_active_config
 from services.points_service import award_points
 
 
@@ -27,6 +29,14 @@ def _normalize_feedback(feedback_value):
     return feedback_value
 
 
+def _build_user_feedback_payload(essay):
+    return {
+        "userRating": float(essay.user_rating) if essay.user_rating is not None else None,
+        "userReview": essay.user_review,
+        "userReviewedAt": essay.user_reviewed_at.isoformat() if essay.user_reviewed_at else None,
+    }
+
+
 @essay_bp.route("/api/v1/score", methods=["POST"])
 @active_required
 def score_essay():
@@ -39,9 +49,18 @@ def score_essay():
         return jsonify({"error": "缺少作文题目描述或内容"}), 400
 
     username = get_jwt_identity()
-    account = PointsAccount.query.filter_by(user_username=username).first()
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({"error": "用户不存在"}), 401
+    account = PointsAccount.query.filter_by(user_id=user.id).first()
     if not account or account.balance < 5:
         return jsonify({"error": "积分不足"}), 402
+    active_config = get_active_config()
+    if active_config and active_config.quota_tokens is not None:
+        now = datetime.utcnow()
+        used_tokens, _ = get_month_usage(active_config.model_name, now.year, now.month)
+        if used_tokens >= active_config.quota_tokens:
+            return jsonify({"error": "当前模型额度已用尽，请联系管理员切换模型或调整额度"}), 429
 
     try:
         score, feedback, revised_content, usage = ai_score_and_refine(topic, content)
@@ -55,7 +74,7 @@ def score_essay():
     try:
         essay = Essay(
             id=essay_id,
-            username=username,
+            user_id=user.id,
             topic=topic,
             title=title,
             original_content=content,
@@ -94,7 +113,8 @@ def score_essay():
         "score": score,
         "feedback": feedback,
         "revisedContent": revised_content,
-        "timestamp": timestamp
+        "timestamp": timestamp,
+        **_build_user_feedback_payload(essay),
     })
 
 
@@ -103,10 +123,13 @@ def score_essay():
 def get_history(username):
     if username != get_jwt_identity():
         return jsonify({"error": "权限不足"}), 403
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({"error": "用户不存在"}), 404
     try:
         essays = (
             Essay.query
-            .filter_by(username=username)
+            .filter(Essay.user_id == user.id)
             .order_by(Essay.timestamp.desc())
             .all()
         )
@@ -124,10 +147,13 @@ def get_history(username):
 @active_required
 def get_my_history():
     username = get_jwt_identity()
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({"error": "用户不存在"}), 401
     try:
         essays = (
             Essay.query
-            .filter_by(username=username)
+            .filter(Essay.user_id == user.id)
             .order_by(Essay.timestamp.desc())
             .all()
         )
@@ -151,7 +177,11 @@ def get_essay_detail(essay_id):
         return jsonify({"error": "作文详情查询失败"}), 500
 
     if essay:
-        if essay.username != get_jwt_identity():
+        username = get_jwt_identity()
+        user = User.query.filter_by(username=username).first()
+        if not user:
+            return jsonify({"error": "用户不存在"}), 401
+        if essay.user_id != user.id:
             return jsonify({"error": "权限不足"}), 403
         feedback = _normalize_feedback(essay.feedback)
         response_essay = {
@@ -162,8 +192,55 @@ def get_essay_detail(essay_id):
             "score": essay.score,
             "feedback": feedback,
             "revisedContent": essay.revised_content,
-            "timestamp": essay.timestamp
+            "timestamp": essay.timestamp,
+            **_build_user_feedback_payload(essay),
         }
         return jsonify(response_essay)
 
     return jsonify({"error": "作文未找到"}), 404
+
+
+@essay_bp.route("/api/v1/essay/<essay_id>/evaluation", methods=["PATCH"])
+@active_required
+def save_essay_evaluation(essay_id):
+    data = request.get_json() or {}
+    rating = data.get("rating")
+    review = data.get("review")
+
+    try:
+        rating_value = float(rating)
+    except (TypeError, ValueError):
+        return jsonify({"error": "评分反馈星级必须为 0.5 到 5 的 0.5 递增值"}), 400
+
+    scaled_rating = rating_value * 2
+    if rating_value < 0.5 or rating_value > 5 or abs(scaled_rating - round(scaled_rating)) > 1e-9:
+        return jsonify({"error": "评分反馈星级必须为 0.5 到 5 的 0.5 递增值"}), 400
+
+    review_text = str(review or "").strip()
+    if len(review_text) > 500:
+        return jsonify({"error": "文字评价不能超过 500 字"}), 400
+
+    username = get_jwt_identity()
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({"error": "用户不存在"}), 401
+
+    essay = Essay.query.filter_by(id=essay_id).first()
+    if not essay:
+        return jsonify({"error": "作文未找到"}), 404
+    if essay.user_id != user.id:
+        return jsonify({"error": "权限不足"}), 403
+
+    try:
+        essay.user_rating = rating_value
+        essay.user_review = review_text or None
+        essay.user_reviewed_at = datetime.utcnow()
+        db.session.commit()
+        return jsonify({
+            "message": "评分效果反馈已保存",
+            "evaluation": _build_user_feedback_payload(essay),
+        }), 200
+    except Exception as exc:
+        db.session.rollback()
+        print(f"Essay evaluation save failed: {exc}")
+        return jsonify({"error": "评分效果反馈保存失败"}), 500

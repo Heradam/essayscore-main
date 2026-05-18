@@ -47,3 +47,29 @@ def get_month_usage(model, year, month):
     total_tokens = int(totals[0] or 0)
     last_used_at = totals[1]
     return total_tokens, last_used_at
+
+
+def get_month_usage_map(models, year, month):
+    if not models:
+        return {}
+    start = datetime(year, month, 1)
+    if month == 12:
+        end = datetime(year + 1, 1, 1)
+    else:
+        end = datetime(year, month + 1, 1)
+    rows = db.session.query(
+        LLMUsageLog.model,
+        func.coalesce(func.sum(LLMUsageLog.total_tokens), 0),
+        func.max(LLMUsageLog.created_at),
+    ).filter(
+        LLMUsageLog.model.in_(models),
+        LLMUsageLog.created_at >= start,
+        LLMUsageLog.created_at < end,
+    ).group_by(LLMUsageLog.model).all()
+    result = {model: {"usedTokens": 0, "lastUsedAt": None} for model in models}
+    for model, used_tokens, last_used_at in rows:
+        result[model] = {
+            "usedTokens": int(used_tokens or 0),
+            "lastUsedAt": last_used_at,
+        }
+    return result

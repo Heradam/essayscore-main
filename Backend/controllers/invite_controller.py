@@ -4,7 +4,7 @@ import os
 from flask import Blueprint, jsonify
 from flask_jwt_extended import get_jwt_identity
 
-from models import InviteCode
+from models import InviteCode, User
 from services.auth_service import active_required
 
 
@@ -35,7 +35,10 @@ def _generate_unique_code():
 @active_required
 def get_invite_code():
     username = get_jwt_identity()
-    code = InviteCode.query.filter_by(inviter_username=username).first()
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({"error": "用户不存在"}), 401
+    code = InviteCode.query.filter_by(inviter_user_id=user.id).first()
     if code:
         return jsonify({
             "code": code.code,
@@ -48,7 +51,10 @@ def get_invite_code():
 @active_required
 def create_invite_code():
     username = get_jwt_identity()
-    existing = InviteCode.query.filter_by(inviter_username=username).first()
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({"error": "用户不存在"}), 401
+    existing = InviteCode.query.filter_by(inviter_user_id=user.id).first()
     if existing:
         return jsonify({
             "code": existing.code,
@@ -56,7 +62,7 @@ def create_invite_code():
         }), 200
 
     code = _generate_unique_code()
-    invite = InviteCode(inviter_username=username, code=code)
+    invite = InviteCode(inviter_user_id=user.id, code=code)
     try:
         from extensions import db
 
@@ -78,15 +84,18 @@ def create_invite_code():
 @active_required
 def reset_invite_code():
     username = get_jwt_identity()
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({"error": "用户不存在"}), 401
     code = _generate_unique_code()
     try:
         from extensions import db
 
-        existing = InviteCode.query.filter_by(inviter_username=username).first()
+        existing = InviteCode.query.filter_by(inviter_user_id=user.id).first()
         if existing:
             existing.code = code
         else:
-            existing = InviteCode(inviter_username=username, code=code)
+            existing = InviteCode(inviter_user_id=user.id, code=code)
             db.session.add(existing)
         db.session.commit()
         return jsonify({

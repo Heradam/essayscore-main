@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-import os
 
 from flask import Blueprint, jsonify, request
 from sqlalchemy import func
@@ -9,8 +8,13 @@ from extensions import db
 from models import Essay, PointsAccount, PointsLedger, User
 from services.points_service import award_points
 from services.auth_service import role_required
-from services.llm_usage_service import get_month_usage
-from services.llm_service import get_active_model_name
+from services.llm_usage_service import get_month_usage, get_month_usage_map
+from services.llm_service import (
+    get_active_model_name,
+    get_llm_runtime_context,
+    test_llm_connection,
+    get_provider_balance,
+)
 from services.llm_config_service import get_active_config, set_active_config, to_safe_dict
 from models import LLMConfig, LLMUsageLog
 
@@ -37,6 +41,29 @@ def _normalize_subject(value):
     if value not in ALLOWED_SUBJECTS:
         return None
     return value
+
+
+def _parse_quota_tokens(value):
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, str):
+        normalized = value.strip().replace(",", "").replace("_", "")
+        if not normalized.isdigit():
+            return None
+        parsed = int(normalized)
+        return parsed if parsed >= 0 else None
+    return None
+
+
+def _clean_optional_text(value):
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 @admin_bp.route("/api/v1/admin/users", methods=["GET"])
@@ -194,7 +221,7 @@ def list_points_accounts():
     try:
         q = db.session.query(User.username, PointsAccount.balance).outerjoin(
             PointsAccount,
-            PointsAccount.user_username == User.username,
+            PointsAccount.user_id == User.id,
         )
         if query:
             q = q.filter(User.username.like(f"%{query}%"))
@@ -227,7 +254,7 @@ def admin_dashboard():
 
         submissions_7d = Essay.query.filter(Essay.timestamp >= cutoff_ms).count()
         active_submitters_7d = (
-            db.session.query(func.count(func.distinct(Essay.username)))
+            db.session.query(func.count(func.distinct(Essay.user_id)))
             .filter(Essay.timestamp >= cutoff_ms)
             .scalar()
         ) or 0
@@ -268,10 +295,11 @@ def admin_dashboard():
 def llm_status():
     try:
         now = datetime.utcnow()
-        model_name = get_active_model_name()
+        active_config = get_active_config()
+        runtime = get_llm_runtime_context()
+        model_name = active_config.model_name if active_config else get_active_model_name()
         used_tokens, last_used_at = get_month_usage(model_name, now.year, now.month)
-        quota = os.getenv("LLM_TOKEN_QUOTA")
-        quota_value = int(quota) if quota and quota.isdigit() else None
+        quota_value = active_config.quota_tokens if active_config else None
         remaining = None
         if quota_value is not None:
             remaining = max(quota_value - used_tokens, 0)
@@ -282,18 +310,72 @@ def llm_status():
             "quotaTokens": quota_value,
             "remainingTokens": remaining,
             "lastUsedAt": last_used_at.isoformat() if last_used_at else None,
+            "source": runtime.get("source"),
+            "provider": runtime.get("provider"),
+            "baseUrl": runtime.get("baseUrl"),
+            "activeConfigId": runtime.get("configId"),
         }), 200
     except Exception as exc:
         print(f"LLM status query failed: {exc}")
         return jsonify({"error": "LLM 状态查询失败"}), 500
 
 
+@admin_bp.route("/api/v1/admin/llm/test", methods=["POST"])
+@role_required("admin")
+def test_llm_config():
+    data = request.get_json() or {}
+    model_name = _clean_optional_text(data.get("modelName"))
+    api_key = _clean_optional_text(data.get("apiKey"))
+    base_url = _clean_optional_text(data.get("baseUrl"))
+
+    if not model_name or not api_key:
+        return jsonify({"error": "modelName 和 apiKey 为必填项"}), 400
+
+    try:
+        result = test_llm_connection(model_name=model_name, api_key=api_key, base_url=base_url)
+        return jsonify(result), 200
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"连通性测试失败: {exc}"}), 400
+
+
+@admin_bp.route("/api/v1/admin/llm/configs/<int:config_id>/balance", methods=["GET"])
+@role_required("admin")
+def llm_config_balance(config_id):
+    config = LLMConfig.query.get(config_id)
+    if not config:
+        return jsonify({"error": "LLM 配置不存在"}), 404
+    try:
+        balance = get_provider_balance(
+            provider=config.provider,
+            api_key=config.api_key,
+            base_url=config.base_url,
+        )
+        return jsonify(balance), 200
+    except Exception as exc:
+        return jsonify({"error": f"余额查询失败: {exc}"}), 400
+
+
 @admin_bp.route("/api/v1/admin/llm/configs", methods=["GET"])
 @role_required("admin")
 def list_llm_configs():
     try:
+        now = datetime.utcnow()
         configs = LLMConfig.query.order_by(LLMConfig.created_at.desc()).all()
-        return jsonify([to_safe_dict(item) for item in configs]), 200
+        usage_map = get_month_usage_map([item.model_name for item in configs], now.year, now.month)
+        result = []
+        for item in configs:
+            safe_item = to_safe_dict(item)
+            usage = usage_map.get(item.model_name) or {}
+            used_tokens = int(usage.get("usedTokens") or 0)
+            quota_tokens = item.quota_tokens
+            safe_item["usedTokens"] = used_tokens
+            safe_item["remainingTokens"] = max(quota_tokens - used_tokens, 0) if quota_tokens is not None else None
+            last_used_at = usage.get("lastUsedAt")
+            safe_item["lastUsedAt"] = last_used_at.isoformat() if last_used_at else None
+            result.append(safe_item)
+        return jsonify(result), 200
     except Exception as exc:
         print(f"LLM config list failed: {exc}")
         return jsonify({"error": "LLM 配置查询失败"}), 500
@@ -303,14 +385,17 @@ def list_llm_configs():
 @role_required("admin")
 def create_llm_config():
     data = request.get_json() or {}
-    model_name = data.get("modelName")
-    provider = data.get("provider")
-    api_key = data.get("apiKey")
-    base_url = data.get("baseUrl")
+    model_name = _clean_optional_text(data.get("modelName"))
+    provider = _clean_optional_text(data.get("provider"))
+    api_key = _clean_optional_text(data.get("apiKey"))
+    base_url = _clean_optional_text(data.get("baseUrl"))
+    quota_tokens = _parse_quota_tokens(data.get("quotaTokens"))
     is_active = bool(data.get("isActive"))
 
     if not model_name or not api_key:
         return jsonify({"error": "modelName 和 apiKey 为必填项"}), 400
+    if "quotaTokens" in data and data.get("quotaTokens") not in (None, "") and quota_tokens is None:
+        return jsonify({"error": "quotaTokens 必须是大于等于 0 的整数"}), 400
 
     try:
         config = LLMConfig(
@@ -318,6 +403,7 @@ def create_llm_config():
             provider=provider,
             api_key=api_key,
             base_url=base_url,
+            quota_tokens=quota_tokens,
             is_active=False,
         )
         db.session.add(config)
@@ -342,13 +428,22 @@ def update_llm_config(config_id):
             return jsonify({"error": "LLM 配置不存在"}), 404
 
         if "modelName" in data:
-            config.model_name = data.get("modelName") or config.model_name
+            cleaned_model_name = _clean_optional_text(data.get("modelName"))
+            if cleaned_model_name:
+                config.model_name = cleaned_model_name
         if "provider" in data:
-            config.provider = data.get("provider")
-        if "apiKey" in data and data.get("apiKey"):
-            config.api_key = data.get("apiKey")
+            config.provider = _clean_optional_text(data.get("provider"))
+        if "apiKey" in data:
+            cleaned_api_key = _clean_optional_text(data.get("apiKey"))
+            if cleaned_api_key:
+                config.api_key = cleaned_api_key
         if "baseUrl" in data:
-            config.base_url = data.get("baseUrl")
+            config.base_url = _clean_optional_text(data.get("baseUrl"))
+        if "quotaTokens" in data:
+            parsed_quota = _parse_quota_tokens(data.get("quotaTokens"))
+            if data.get("quotaTokens") not in (None, "") and parsed_quota is None:
+                return jsonify({"error": "quotaTokens 必须是大于等于 0 的整数"}), 400
+            config.quota_tokens = parsed_quota
         if data.get("isActive"):
             set_active_config(config)
         db.session.commit()

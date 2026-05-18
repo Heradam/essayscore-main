@@ -3,9 +3,10 @@ from flask_jwt_extended import create_access_token, get_jwt_identity
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from extensions import db
-from models import InviteBind, InviteCode, PointsAccount, User
+from models import InviteBind, InviteCode, User
 from services.points_service import award_points
 from services.auth_service import active_required, role_required
+from services.password_reset_service import create_reset_request, consume_reset_code
 
 
 auth_bp = Blueprint("auth", __name__)
@@ -30,17 +31,19 @@ def register_user():
         return jsonify({"message": "手机号格式不正确"}), 400
 
     try:
-        existing = db.session.get(User, username)
+        existing = User.query.filter_by(username=username).first()
         if existing:
             return jsonify({"message": f"用户 '{username}' 已存在，请直接登录。"}), 409
 
         invite_code = data.get("inviteCode")
         inviter_username = None
+        inviter_user = None
         if invite_code:
             invite = InviteCode.query.filter_by(code=invite_code).first()
             if not invite:
                 return jsonify({"message": "邀请码无效"}), 400
-            inviter_username = invite.inviter_username
+            inviter_user = User.query.filter_by(id=invite.inviter_user_id).first()
+            inviter_username = inviter_user.username if inviter_user else None
             if inviter_username == username:
                 return jsonify({"message": "不能使用自己的邀请码"}), 400
 
@@ -52,6 +55,7 @@ def register_user():
             email=email,
         )
         db.session.add(user)
+        db.session.flush()
 
         award_points(
             username=username,
@@ -63,11 +67,14 @@ def register_user():
         )
 
         if inviter_username:
-            existing_bind = InviteBind.query.filter_by(invitee_username=username).first()
+            if not inviter_user:
+                db.session.rollback()
+                return jsonify({"message": "邀请码数据异常，请联系管理员"}), 400
+            existing_bind = InviteBind.query.filter_by(invitee_user_id=user.id).first()
             if not existing_bind:
                 bind = InviteBind(
-                    invitee_username=username,
-                    inviter_username=inviter_username,
+                    invitee_user_id=user.id,
+                    inviter_user_id=inviter_user.id,
                     code=invite_code,
                 )
                 db.session.add(bind)
@@ -104,7 +111,7 @@ def login_user():
         return jsonify({"message": "用户名和密码是必填项"}), 400
 
     try:
-        user_record = db.session.get(User, username)
+        user_record = User.query.filter_by(username=username).first()
         if user_record is None:
             return jsonify({"message": "用户名或密码错误。"}), 401
 
@@ -175,13 +182,71 @@ def change_password():
 
 @auth_bp.route("/api/v1/auth/forgot-password", methods=["POST"])
 def forgot_password():
-    return jsonify({
-        "message": "请联系管理员重置密码。"
-    }), 200
+    data = request.get_json() or {}
+    username = data.get("username")
+    contact = data.get("contact")
+
+    if not username:
+        return jsonify({"message": "用户名是必填项"}), 400
+
+    try:
+        user = User.query.filter_by(username=username).first()
+        # 避免用户名枚举：即使用户不存在也返回统一提示。
+        if not user:
+            return jsonify({"message": "若账号存在，验证码已发送。"}), 200
+
+        # 如果前端传了联系方式，则要求和用户资料一致。
+        if contact:
+            normalized = str(contact).strip()
+            user_phone = (user.phone or "").strip()
+            user_email = (user.email or "").strip().lower()
+            if normalized != user_phone and normalized.lower() != user_email:
+                return jsonify({"message": "联系方式校验失败"}), 400
+
+        reset, code = create_reset_request(username=user.username, contact=contact)
+        db.session.commit()
+
+        # 当前项目没有短信/邮件网关，开发期返回验证码供前端完成闭环。
+        return jsonify({
+            "message": "验证码已生成，请在下一步完成重置。",
+            "expiresAt": reset.expires_at.isoformat(),
+            "code": code,
+        }), 200
+    except Exception as exc:
+        db.session.rollback()
+        print(f"Forgot password failed: {exc}")
+        return jsonify({"message": "找回密码请求失败"}), 500
 
 
 @auth_bp.route("/api/v1/auth/reset-password", methods=["POST"])
 def reset_password():
-    return jsonify({
-        "message": "当前不支持自助重置，请联系管理员。"
-    }), 403
+    data = request.get_json() or {}
+    username = data.get("username")
+    code = data.get("code")
+    new_password = data.get("newPassword")
+
+    if not username or not code or not new_password:
+        return jsonify({"message": "用户名、验证码、新密码均为必填项"}), 400
+    if len(new_password) < 6:
+        return jsonify({"message": "新密码至少 6 位"}), 400
+
+    try:
+        user = User.query.filter_by(username=username).first()
+        if not user:
+            return jsonify({"message": "用户名或验证码错误"}), 400
+
+        _, err = consume_reset_code(username=username, code=code)
+        if err == "invalid":
+            return jsonify({"message": "用户名或验证码错误"}), 400
+        if err == "expired":
+            return jsonify({"message": "验证码已过期"}), 400
+
+        user.password_hash = generate_password_hash(new_password, method="pbkdf2:sha256")
+        user.must_change_password = False
+        user.must_change_password_expires_at = None
+        db.session.commit()
+        return jsonify({"message": "密码重置成功，请重新登录。"}), 200
+    except Exception as exc:
+        db.session.rollback()
+        print(f"Reset password failed: {exc}")
+        return jsonify({"message": "密码重置失败"}), 500

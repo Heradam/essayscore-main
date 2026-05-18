@@ -6,7 +6,8 @@ from extensions import db
 class User(db.Model):
     __tablename__ = "users"
 
-    username = db.Column(db.String(100), primary_key=True)
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    username = db.Column(db.String(100), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(50), nullable=False, default="user")
     is_active = db.Column(db.Boolean, default=True)

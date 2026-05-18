@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt_identity
 
-from models import PointsAccount, PointsLedger
+from models import PointsAccount, PointsLedger, User
 from services.auth_service import active_required
 
 
@@ -12,7 +12,10 @@ points_bp = Blueprint("points", __name__)
 @active_required
 def get_balance():
     username = get_jwt_identity()
-    account = PointsAccount.query.filter_by(user_username=username).first()
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({"error": "用户不存在"}), 401
+    account = PointsAccount.query.filter_by(user_id=user.id).first()
     if not account:
         return jsonify({
             "balance": 0,
@@ -30,12 +33,15 @@ def get_balance():
 @active_required
 def get_ledger():
     username = get_jwt_identity()
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({"error": "用户不存在"}), 401
     page = int(request.args.get("page", 1))
     page_size = int(request.args.get("pageSize", 20))
     offset = (page - 1) * page_size
     query = (
         PointsLedger.query
-        .filter_by(user_username=username)
+        .filter_by(user_id=user.id)
         .order_by(PointsLedger.created_at.desc())
     )
     total = query.count()

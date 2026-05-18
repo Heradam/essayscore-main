@@ -26,6 +26,7 @@ def to_safe_dict(config):
         "modelName": config.model_name,
         "provider": config.provider,
         "baseUrl": config.base_url,
+        "quotaTokens": config.quota_tokens,
         "isActive": config.is_active,
         "apiKeyMasked": mask_key(config.api_key),
         "createdAt": config.created_at.isoformat() if config.created_at else None,
